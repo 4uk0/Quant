@@ -139,6 +139,32 @@ body.light #timer-num { color: #8a5d00; text-shadow: none; }
 #timer-bar.low #timer-fill { background: linear-gradient(90deg, #ff2040, #ff8866); animation: ebpulse 0.4s infinite alternate; }
 #timer-bar.low #timer-num { color: #ff8a8a; }
 
+/* ── Core (level) progress ────────────────────── */
+#core-bar {
+  position: absolute; top: 114px; left: 50%; transform: translateX(-50%);
+  width: min(340px, 86vw); height: 14px; display: flex; align-items: center; gap: 8px;
+}
+#core-bar .eb-label.gold { color: rgba(255,225,140,0.85); text-shadow: 0 0 6px rgba(255,190,60,0.5); }
+body.light #core-bar .eb-label.gold { color: #8a5d00; text-shadow: none; }
+#core-track {
+  flex: 1; height: 4px; border-radius: 3px;
+  background: rgba(255,200,60,0.1);
+  border: 1px solid rgba(255,210,100,0.25);
+  overflow: hidden;
+}
+#core-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #ffb300, #fff3b0);
+  box-shadow: 0 0 8px rgba(255,210,80,0.9);
+  transition: width 0.4s ease;
+}
+#core-bar.done #core-fill { animation: ebpulse 0.6s infinite alternate; }
+#core-num {
+  font-size: 9px; font-weight: 600; min-width: 56px; text-align: right;
+  color: rgba(255,235,170,0.9); font-variant-numeric: tabular-nums;
+}
+body.light #core-num { color: #8a5d00; }
+
 /* ── Game over ────────────────────────────────── */
 #gameover {
   position: absolute; inset: 0; z-index: 50;
@@ -380,6 +406,7 @@ body.light #banner .b-sub { color: #2c6f9e; }
   .hud-icon { width: 16px; height: 16px; }
   #event-bar { top: 62px; }
   #timer-bar { top: 80px; }
+  #core-bar { top: 98px; }
   #cog-btn { top: 10px; right: 10px; width: 40px; height: 40px; }
   #drawer { width: min(300px, 88vw); }
   #bottom-bar { bottom: 8px; gap: 8px; padding: 8px 12px 6px; }
@@ -432,7 +459,7 @@ body.light #banner .b-sub { color: #2c6f9e; }
     <div class="hud-seg">
       <canvas class="hud-icon" id="hi-score" width="60" height="60"></canvas>
       <div class="hud-text">
-        <div class="hud-label">Score</div>
+        <div class="hud-label">Reactor Power</div>
         <div class="hud-value gold" id="hv-score">0</div>
       </div>
     </div>
@@ -443,10 +470,16 @@ body.light #banner .b-sub { color: #2c6f9e; }
     <div id="event-track"><div id="event-fill"></div></div>
   </div>
 
-  <div id="timer-bar" class="hidden">
-    <span class="eb-label">REACTOR WINDOW</span>
+  <div id="timer-bar">
+    <span class="eb-label">CORE WINDOW</span>
     <div id="timer-track"><div id="timer-fill"></div></div>
     <span id="timer-num">90</span>
+  </div>
+
+  <div id="core-bar">
+    <span class="eb-label gold" id="core-label">CORE 1</span>
+    <div id="core-track"><div id="core-fill"></div></div>
+    <span id="core-num">0/3000</span>
   </div>
 
   <div id="cog-btn" title="Systems panel">
@@ -471,13 +504,6 @@ body.light #banner .b-sub { color: #2c6f9e; }
           <div class="seg">
             <button class="seg-btn on" data-mode="select">SELECT</button>
             <button class="seg-btn" data-mode="drag">DRAG</button>
-          </div>
-        </div>
-        <div class="setting-row">
-          <span>MODE</span>
-          <div class="seg">
-            <button class="seg-btn on" data-speed="standard">STANDARD</button>
-            <button class="seg-btn" data-speed="lightspeed">LIGHTSPEED</button>
           </div>
         </div>
       </div>
@@ -568,10 +594,10 @@ body.light #banner .b-sub { color: #2c6f9e; }
   <div id="banner"><div class="b-main" id="banner-main"></div><div class="b-sub" id="banner-sub"></div></div>
 
   <div id="gameover">
-    <div class="go-main">Reactor Shutdown</div>
-    <div class="go-sub">Containment window expired</div>
+    <div class="go-main" id="go-main">Core Failure</div>
+    <div class="go-sub" id="go-sub">Reactor power target not reached</div>
     <div class="go-score" id="go-score">0</div>
-    <button id="go-restart">REINITIALIZE REACTOR</button>
+    <button id="go-restart">RETRY CORE</button>
   </div>
 </div>
 

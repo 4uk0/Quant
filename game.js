@@ -46,10 +46,21 @@ let shake = 0;
 let settings = { light: false, control: 'select', speed: 'standard' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('qr-settings') || '{}')); } catch(e) {}
 
-// Lightspeed mode
-const LS_START = 90000, LS_MAX = 120000;
-let timeLeft = LS_START, gameOver = false;
+// Core (level) system — each Core is a timed stage with a Reactor Power target.
+// Odd Cores use the hexagonal lattice, even Cores the cubic (square) lattice.
+const CORE_TIME = 90000;
+let core = 1;
+try { core = Math.max(1, (JSON.parse(localStorage.getItem('qr-progress') || '{}').core | 0) || 1); } catch(e) {}
+let gridMode = 'hex';          // 'hex' | 'square'
+let coreTarget = 3000;
+let levelState = 'playing';    // 'playing' | 'timeup' | 'passed'
+let timeLeft = CORE_TIME, gameOver = false;
 let hudTick = 0;
+
+function coreTargetFor(n) { return 500 * n * (n + 5); }
+function saveProgress() {
+  try { localStorage.setItem('qr-progress', JSON.stringify({ core })); } catch(e) {}
+}
 
 const THEMES = {
   dark: {
@@ -84,6 +95,9 @@ let armedAbility = null;
 
 // ── Hex Math ────────────────────────────────────────────────
 function hexToPixel(col, row) {
+  if (gridMode === 'square') {
+    return { x: HW * col + BOARD_X, y: VG * row + BOARD_Y };
+  }
   return {
     x: HW * col + (row & 1 ? HW * 0.5 : 0) + BOARD_X,
     y: VG * row + BOARD_Y
@@ -105,6 +119,9 @@ function cubeDist(a, b) {
   return Math.max(Math.abs(a.q-b.q), Math.abs(a.r-b.r), Math.abs(a.s-b.s));
 }
 function hexDist(c1, r1, c2, r2) {
+  if (gridMode === 'square') {
+    return Math.max(Math.abs(c1-c2), Math.abs(r1-r2)); // Chebyshev
+  }
   return cubeDist(cubeFromOffset(c1,r1), cubeFromOffset(c2,r2));
 }
 
@@ -113,9 +130,11 @@ const CUBE_DIRS = [
 ];
 const OFF_DIRS_EVEN = [[+1,0],[-1,0],[0,-1],[-1,-1],[0,+1],[-1,+1]];
 const OFF_DIRS_ODD  = [[+1,0],[-1,0],[+1,-1],[0,-1],[+1,+1],[0,+1]];
+const SQ_DIRS = [[+1,0],[-1,0],[0,+1],[0,-1]];
 
 function getNeighbors(col, row) {
-  const dirs = (row & 1) ? OFF_DIRS_ODD : OFF_DIRS_EVEN;
+  const dirs = gridMode === 'square' ? SQ_DIRS
+    : (row & 1) ? OFF_DIRS_ODD : OFF_DIRS_EVEN;
   return dirs.map(([dc,dr]) => ({col:col+dc, row:row+dr}))
              .filter(p => isValid(p.col, p.row));
 }
@@ -145,6 +164,19 @@ function mkParticle(type, special=null) {
 
 // ── Board Init ───────────────────────────────────────────────
 function causesMatchAt(col, row, type) {
+  if (gridMode === 'square') {
+    // check runs of 2 to the left and 2 above
+    for (const [dc, dr] of [[-1,0],[0,-1]]) {
+      let count = 1;
+      for (let i = 1; i <= 2; i++) {
+        const p = getCell(col + dc*i, row + dr*i);
+        if (!p || p.type !== type) break;
+        count++;
+      }
+      if (count >= 3) return true;
+    }
+    return false;
+  }
   const cube = cubeFromOffset(col, row);
   for (let axis = 0; axis < 3; axis++) {
     const d1 = CUBE_DIRS[axis*2], d2 = CUBE_DIRS[axis*2+1];
@@ -179,6 +211,31 @@ function initBoard() {
 // ── Match Detection ──────────────────────────────────────────
 function findAllMatches() {
   const matched = new Map();
+  if (gridMode === 'square') {
+    // scan horizontal and vertical runs
+    for (const [dc, dr] of [[1,0],[0,1]]) {
+      for (let row = 0; row < ROWS; row++) {
+        for (let col = 0; col < COLS; col++) {
+          const p = board[row][col];
+          if (!p) continue;
+          // only start a run at its head
+          const prev = getCell(col - dc, row - dr);
+          if (prev && prev.type === p.type) continue;
+          const run = [{col, row}];
+          let c = col + dc, r = row + dr;
+          while (isValid(c, r) && board[r][c]?.type === p.type) {
+            run.push({col: c, row: r});
+            c += dc; r += dr;
+          }
+          if (run.length >= 3) run.forEach(cell => {
+            const k = `${cell.col},${cell.row}`;
+            if (!matched.has(k)) matched.set(k, cell);
+          });
+        }
+      }
+    }
+    return groupMatches(matched);
+  }
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
       const p = board[row][col];
@@ -208,6 +265,10 @@ function findAllMatches() {
       }
     }
   }
+  return groupMatches(matched);
+}
+
+function groupMatches(matched) {
   if (matched.size === 0) return [];
 
   const cells = [...matched.values()];
@@ -351,7 +412,6 @@ function triggerCosmicEvent() {
   showBanner(names[type][0], names[type][1]);
   addLog(names[type][0] + ' event triggered', true);
   coherence = Math.max(88, coherence - 3.5); // events disturb coherence
-  if (settings.speed === 'lightspeed') timeLeft = Math.min(LS_MAX, timeLeft + 8000);
   // Reward an ability charge
   const keys = Object.keys(abilities);
   const k = keys[Math.floor(Math.random() * keys.length)];
@@ -387,17 +447,23 @@ function updateCosmicEvent(dt) {
     if (!ev.cleared && prog > 0.45) {
       ev.cleared = true;
       shake = 7;
-      // Fire beams along all 3 hex axes through the cell; clear those lines
-      const cube = cubeFromOffset(ev.cell.col, ev.cell.row);
       let n = 0;
-      for (let axis = 0; axis < 3; axis++) {
-        for (const d of [CUBE_DIRS[axis*2], CUBE_DIRS[axis*2+1]]) {
-          let c = {q:cube.q, r:cube.r, s:cube.s};
-          while (true) {
-            const o = offsetFromCube(c.q, c.r);
-            if (!isValid(o.col, o.row)) break;
-            if (board[o.row][o.col]) { board[o.row][o.col] = null; n++; }
-            c = {q:c.q+d[0], r:c.r+d[1], s:c.s+d[2]};
+      if (gridMode === 'square') {
+        // beams clear the full row and column through the cell
+        for (let c = 0; c < COLS; c++) if (board[ev.cell.row][c]) { board[ev.cell.row][c] = null; n++; }
+        for (let r = 0; r < ROWS; r++) if (board[r][ev.cell.col]) { board[r][ev.cell.col] = null; n++; }
+      } else {
+        // Fire beams along all 3 hex axes through the cell; clear those lines
+        const cube = cubeFromOffset(ev.cell.col, ev.cell.row);
+        for (let axis = 0; axis < 3; axis++) {
+          for (const d of [CUBE_DIRS[axis*2], CUBE_DIRS[axis*2+1]]) {
+            let c = {q:cube.q, r:cube.r, s:cube.s};
+            while (true) {
+              const o = offsetFromCube(c.q, c.r);
+              if (!isValid(o.col, o.row)) break;
+              if (board[o.row][o.col]) { board[o.row][o.col] = null; n++; }
+              c = {q:c.q+d[0], r:c.r+d[1], s:c.s+d[2]};
+            }
           }
         }
       }
@@ -566,14 +632,21 @@ function updateGame(dt) {
   }
   effects = effects.filter(e => { e.t += dt; return e.t < e.maxT; });
 
-  // Lightspeed countdown
-  if (settings.speed === 'lightspeed' && !gameOver) {
+  // Core countdown — when it expires, running cascades are allowed to finish
+  // (the combo rule) before the level is evaluated.
+  if (!gameOver && levelState === 'playing') {
     timeLeft -= dt;
-    const pct = Math.max(0, timeLeft / LS_MAX * 100);
+    const pct = Math.max(0, timeLeft / CORE_TIME * 100);
     document.getElementById('timer-fill').style.width = pct + '%';
     document.getElementById('timer-num').textContent = Math.max(0, Math.ceil(timeLeft / 1000));
     document.getElementById('timer-bar').classList.toggle('low', timeLeft < 10000);
-    if (timeLeft <= 0) { endGame(); return; }
+    if (timeLeft <= 0) {
+      timeLeft = 0;
+      levelState = 'timeup';
+      document.getElementById('timer-num').textContent = '0';
+      if (gameState === 'IDLE' || gameState === 'SELECTED') evaluateCore();
+      else addLog('Window closed — chain reaction continuing', true);
+    }
   }
   if (gameOver) return;
 
@@ -635,9 +708,11 @@ function updateGame(dt) {
         coherence = Math.min(100, 96 + reactorPower * 0.04);
         coreTemp = Math.min(9.9, coreTemp + matchGroups.length * 0.15);
         chargeEvent(2 + matchGroups.reduce((s,g)=>s+g.size,0) * 0.7 + combo * 1.2);
-        if (settings.speed === 'lightspeed') {
-          const totalSize = matchGroups.reduce((s,g)=>s+g.size,0);
-          timeLeft = Math.min(LS_MAX, timeLeft + 900 * matchGroups.length + 200 * totalSize + combo * 350);
+        if (levelState === 'playing' && score >= coreTarget) {
+          levelState = 'passed';
+          document.getElementById('core-bar').classList.add('done');
+          showBanner(`CORE ${core} STABILIZED`, 'Reactor power target reached');
+          playSound('event');
         }
         if (pts > 0) addText(VW/2, VH/2, `+${pts}`, '#88ffcc', 30);
         updateHUD();
@@ -659,8 +734,11 @@ function updateGame(dt) {
     case 'CHECKING': {
       const groups = findAllMatches();
       if (groups.length) beginMatching(groups);
-      else if (eventCharge >= 100) triggerCosmicEvent();
-      else { combo = 0; selected = null; setState('IDLE'); }
+      else if (eventCharge >= 100 && levelState === 'playing') triggerCosmicEvent();
+      else {
+        combo = 0; selected = null; setState('IDLE');
+        if (levelState !== 'playing') evaluateCore();
+      }
       break;
     }
     case 'EVENT': {
@@ -677,7 +755,7 @@ window.addEventListener('pointerup', onPointerUp);
 
 function onPointerDown(e) {
   resumeAudio();
-  if (gameOver) return;
+  if (gameOver || levelState !== 'playing') return;
   if (gameState !== 'IDLE' && gameState !== 'SELECTED') return;
   const rect = canvas.getBoundingClientRect();
   const px = e.clientX - rect.left, py = e.clientY - rect.top;
@@ -792,9 +870,6 @@ function applySettings() {
     b.classList.toggle('on', (b.dataset.vision === 'white') === settings.light));
   document.querySelectorAll('.seg-btn[data-mode]').forEach(b =>
     b.classList.toggle('on', b.dataset.mode === settings.control));
-  document.querySelectorAll('.seg-btn[data-speed]').forEach(b =>
-    b.classList.toggle('on', b.dataset.speed === settings.speed));
-  document.getElementById('timer-bar').classList.toggle('hidden', settings.speed !== 'lightspeed');
   try { localStorage.setItem('qr-settings', JSON.stringify(settings)); } catch(e) {}
 }
 document.querySelectorAll('.seg-btn[data-vision]').forEach(b => b.addEventListener('click', () => {
@@ -807,22 +882,6 @@ document.querySelectorAll('.seg-btn[data-mode]').forEach(b => b.addEventListener
   applySettings();
   addLog('Control mode: ' + b.dataset.mode.toUpperCase());
 }));
-document.querySelectorAll('.seg-btn[data-speed]').forEach(b => b.addEventListener('click', () => {
-  const was = settings.speed;
-  settings.speed = b.dataset.speed;
-  applySettings();
-  if (settings.speed === 'lightspeed' && was !== 'lightspeed') {
-    timeLeft = LS_START; gameOver = false;
-    document.getElementById('gameover').classList.remove('show');
-    showBanner('LIGHTSPEED', 'Reactor window open — keep it alive');
-    addLog('LIGHTSPEED mode engaged', true);
-  } else if (settings.speed === 'standard') {
-    gameOver = false;
-    document.getElementById('gameover').classList.remove('show');
-    if (gameState === 'GAMEOVER') setState('IDLE');
-    addLog('Standard operation restored');
-  }
-}));
 // Accordion: only one drawer section open at a time
 document.querySelectorAll('.expand-toggle').forEach(h => h.addEventListener('click', () => {
   const body = document.getElementById(h.dataset.acc);
@@ -831,36 +890,66 @@ document.querySelectorAll('.expand-toggle').forEach(h => h.addEventListener('cli
   document.querySelectorAll('.expand-toggle').forEach(x => x.classList.remove('open'));
   if (!wasOpen) { body.classList.add('open'); h.classList.add('open'); }
 }));
-// Game over / restart
+// ── Core (level) flow ────────────────────────────────────────
+function startCore(n) {
+  core = n;
+  gridMode = (n % 2 === 1) ? 'hex' : 'square';
+  coreTarget = coreTargetFor(n);
+  levelState = 'playing';
+  timeLeft = CORE_TIME;
+  score = 0; combo = 0; reactorPower = 0;
+  stability = 97.6; coherence = 99.2; coreTemp = 4.2; energyOutput = 3.42;
+  eventCharge = 0; cosmicEvent = null; effects = [];
+  matchGroups = []; matchedSet = new Set(); fallingCells = [];
+  selected = null; swapFrom = swapTo = null; drag = null; armedAbility = null;
+  shake = 0; gameOver = false;
+  Object.assign(abilities, { charged:3, fusion:3, stability:3, lance:3, singularity:1 });
+  updateAbilityUI();
+  resize();
+  initBoard();
+  document.getElementById('gameover').classList.remove('show');
+  document.getElementById('event-fill').style.width = '0%';
+  document.getElementById('event-bar').classList.remove('charged');
+  document.getElementById('core-bar').classList.remove('done');
+  updateHUD();
+  setState('IDLE');
+  saveProgress();
+  const lattice = gridMode === 'hex' ? 'Hexagonal lattice' : 'Cubic lattice';
+  showBanner(`CORE ${n}`, `${lattice} — target ${coreTarget.toLocaleString()} RP`);
+  addLog(`CORE ${n} online — ${lattice.toLowerCase()}`, true);
+  addLog(`Target: ${coreTarget.toLocaleString()} reactor power`);
+}
+
+function evaluateCore() {
+  if (gameOver) return;
+  if (score >= coreTarget) {
+    addLog(`CORE ${core} stabilized at ${score.toLocaleString()} RP`, true);
+    showBanner(`CORE ${core} STABILIZED`, `Advancing to Core ${core + 1}`);
+    playSound('event');
+    core++;
+    saveProgress();
+    setState('GAMEOVER'); gameOver = true; // freeze input during transition
+    setTimeout(() => { startCore(core); }, 2300);
+  } else {
+    endGame();
+  }
+}
+
 function endGame() {
   gameOver = true;
   setState('GAMEOVER');
   drag = null; selected = null; armedAbility = null;
   document.querySelectorAll('.ability').forEach(el => el.classList.remove('armed'));
+  document.getElementById('go-main').textContent = `Core ${core} Failure`;
+  document.getElementById('go-sub').textContent =
+    `Reached ${score.toLocaleString()} of ${coreTarget.toLocaleString()} reactor power`;
   document.getElementById('go-score').textContent = score.toLocaleString();
+  document.getElementById('go-restart').textContent = `RETRY CORE ${core}`;
   document.getElementById('gameover').classList.add('show');
-  addLog('REACTOR SHUTDOWN — window expired', true);
+  addLog(`CORE ${core} failure — target missed`, true);
   playSound('event');
 }
-function restartGame() {
-  score = 0; combo = 0; reactorPower = 0;
-  stability = 97.6; coherence = 99.2; coreTemp = 4.2; energyOutput = 3.42;
-  eventCharge = 0; cosmicEvent = null; effects = [];
-  matchGroups = []; matchedSet = new Set();
-  selected = null; swapFrom = swapTo = null; drag = null; armedAbility = null;
-  Object.assign(abilities, { charged:3, fusion:3, stability:3, lance:3, singularity:1 });
-  updateAbilityUI();
-  initBoard();
-  timeLeft = LS_START; gameOver = false;
-  document.getElementById('gameover').classList.remove('show');
-  document.getElementById('event-fill').style.width = '0%';
-  document.getElementById('event-bar').classList.remove('charged');
-  updateHUD();
-  setState('IDLE');
-  showBanner('REACTOR ONLINE', 'Containment restored');
-  addLog('Reactor reinitialized', true);
-}
-document.getElementById('go-restart').addEventListener('click', restartGame);
+document.getElementById('go-restart').addEventListener('click', () => startCore(core));
 
 // ── Easings ──────────────────────────────────────────────────
 function easeOut(t) { return t*(2-t); }
@@ -928,8 +1017,9 @@ function drawBoard() {
   // connection lines
   for (let row = 0; row < ROWS; row++) for (let col = 0; col < COLS; col++) {
     const pos = hexToPixel(col, row);
-    const dirs = (row & 1) ? OFF_DIRS_ODD : OFF_DIRS_EVEN;
-    dirs.slice(0,3).forEach(([dc,dr]) => {
+    const dirs = gridMode === 'square' ? [[1,0],[0,1]]
+      : ((row & 1) ? OFF_DIRS_ODD : OFF_DIRS_EVEN).slice(0,3);
+    dirs.forEach(([dc,dr]) => {
       const nc = col+dc, nr = row+dr;
       if (!isValid(nc,nr)) return;
       const np = hexToPixel(nc, nr);
@@ -952,10 +1042,13 @@ function drawBoard() {
   ctx.fillStyle = `rgba(${theme.node},${nodeAlpha})`;
   ctx.shadowBlur = 5; ctx.shadowColor = theme.nodeShadow;
   const seen = new Set();
+  const nCorners = gridMode === 'square' ? 4 : 6;
   for (let row = 0; row < ROWS; row++) for (let col = 0; col < COLS; col++) {
     const {x, y} = hexToPixel(col, row);
-    for (let i = 0; i < 6; i++) {
-      const [vx, vy] = hexCorner(x, y, HR, i);
+    for (let i = 0; i < nCorners; i++) {
+      const [vx, vy] = gridMode === 'square'
+        ? [x + (i%2 ? 1 : -1)*HW/2, y + (i<2 ? -1 : 1)*VG/2]
+        : hexCorner(x, y, HR, i);
       const key = `${Math.round(vx)},${Math.round(vy)}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -970,14 +1063,22 @@ function drawBoard() {
 
 function drawHexCell(col, row, isSel, isNbr, isMatch) {
   const {x, y} = hexToPixel(col, row);
-  const r = HR * 0.91;
   ctx.save(); ctx.translate(x, y);
   ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const a = Math.PI/6 + i*Math.PI/3;
-    i===0 ? ctx.moveTo(r*Math.cos(a), r*Math.sin(a)) : ctx.lineTo(r*Math.cos(a), r*Math.sin(a));
+  if (gridMode === 'square') {
+    const s = HW * 0.46, cr = s * 0.22; // rounded square
+    ctx.moveTo(-s + cr, -s);
+    ctx.arcTo(s, -s, s, s, cr); ctx.arcTo(s, s, -s, s, cr);
+    ctx.arcTo(-s, s, -s, -s, cr); ctx.arcTo(-s, -s, s, -s, cr);
+    ctx.closePath();
+  } else {
+    const r = HR * 0.91;
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI/6 + i*Math.PI/3;
+      i===0 ? ctx.moveTo(r*Math.cos(a), r*Math.sin(a)) : ctx.lineTo(r*Math.cos(a), r*Math.sin(a));
+    }
+    ctx.closePath();
   }
-  ctx.closePath();
 
   ctx.fillStyle = isSel ? 'rgba(0,100,200,0.28)' : isNbr ? 'rgba(0,70,150,0.18)' : isMatch ? 'rgba(0,180,255,0.1)' : theme.cellFill;
   ctx.fill();
@@ -1689,6 +1790,14 @@ function updateHUD() {
   const pw = reactorPower/100;
   const bw = (id, v) => { const el = document.getElementById(id); if (el) el.style.width = v+'%'; };
   bw('bar-em', 50+pw*45); bw('bar-sf', 38+pw*52); bw('bar-wf', 28+pw*56); bw('bar-gv', 18+pw*62);
+  // Core progress
+  const cl = document.getElementById('core-label');
+  if (cl) {
+    cl.textContent = `CORE ${core}`;
+    document.getElementById('core-fill').style.width = Math.min(100, score / coreTarget * 100) + '%';
+    document.getElementById('core-num').textContent =
+      `${score.toLocaleString()}/${coreTarget.toLocaleString()}`;
+  }
 }
 
 function addLog(msg, gold=false) {
@@ -1772,21 +1881,27 @@ function resize() {
   }
 
   // Measure the real UI chrome instead of assuming margins
-  let topEdge = 110, bottomEdge = 120;
-  const hudEl = document.getElementById('hud');
+  let topEdge = 130, bottomEdge = 120;
+  const coreEl = document.getElementById('core-bar');
   const barEl = document.getElementById('bottom-bar');
-  if (hudEl && barEl) {
-    const timerHidden = document.getElementById('timer-bar').classList.contains('hidden');
-    topEdge = hudEl.getBoundingClientRect().bottom + (timerHidden ? 26 : 46);
+  if (coreEl && barEl) {
+    topEdge = coreEl.getBoundingClientRect().bottom + 14;
     bottomEdge = VH - barEl.getBoundingClientRect().top + 6;
   }
   const sideEdge = Math.max(8, VW * 0.02);
   const freeW = VW - sideEdge*2;
   const freeH = VH - topEdge - bottomEdge;
-  HR = Math.min(freeW/((COLS+0.5)*Math.sqrt(3)), freeH/((ROWS-1)*1.5+2)) * 0.97;
-  HR = Math.max(13, Math.min(56, HR));
-  HW = HR * Math.sqrt(3); VG = HR * 1.5;
-  const bw=(COLS-1+0.5)*HW, bh=(ROWS-1)*VG;
+  let bw, bh;
+  if (gridMode === 'square') {
+    const cell = Math.max(28, Math.min(104, Math.min(freeW/(COLS+0.3), freeH/(ROWS+0.3)) * 0.99));
+    HW = cell; VG = cell; HR = cell * 0.52;
+    bw = (COLS-1)*HW; bh = (ROWS-1)*VG;
+  } else {
+    HR = Math.min(freeW/((COLS+0.5)*Math.sqrt(3)), freeH/((ROWS-1)*1.5+2)) * 0.97;
+    HR = Math.max(13, Math.min(56, HR));
+    HW = HR * Math.sqrt(3); VG = HR * 1.5;
+    bw = (COLS-1+0.5)*HW; bh = (ROWS-1)*VG;
+  }
   BOARD_X = sideEdge + (freeW - bw)/2;
   BOARD_Y = topEdge + (freeH - bh)/2;
 }
@@ -1800,14 +1915,10 @@ function init() {
     phase:Math.random()*Math.PI*2,
     speed:Math.random()*2.5+0.5
   }));
-  initBoard();
   applySettings();
-  updateHUD();
-  updateAbilityUI();
   addLog('Quantum Reactor initialized');
-  addLog('Particle lattice calibrated');
   addLog('Cosmic event monitor online');
-  addLog('Awaiting particle interaction');
+  startCore(core);
   initAudio();
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', () => setTimeout(resize, 250));
