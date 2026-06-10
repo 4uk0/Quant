@@ -8,7 +8,9 @@ core, and survive the cosmic events the void throws back at you.
 
 ## Play
 
-No build step, no dependencies. Serve the folder with any static server and open it:
+**▶ Play it now: [4uk0.github.io/Quant](https://4uk0.github.io/Quant/)**
+
+Or run it locally — no build step, no dependencies. Serve the folder with any static server and open it:
 
 ```sh
 # PHP
