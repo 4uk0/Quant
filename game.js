@@ -43,7 +43,7 @@ let logQueue = [];
 let shake = 0;
 
 // Settings (persisted)
-let settings = { light: false, control: 'select', speed: 'standard' };
+let settings = { light: false, control: 'select', sound: true };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('qr-settings') || '{}')); } catch(e) {}
 
 // Core (level) system — each Core is a timed stage with a Reactor Power target.
@@ -907,6 +907,8 @@ function applySettings() {
     b.classList.toggle('on', (b.dataset.vision === 'white') === settings.light));
   document.querySelectorAll('.seg-btn[data-mode]').forEach(b =>
     b.classList.toggle('on', b.dataset.mode === settings.control));
+  document.getElementById('sound-btn').classList.toggle('muted', !settings.sound);
+  document.getElementById('opt-sound').classList.toggle('on', settings.sound);
   try { localStorage.setItem('qr-settings', JSON.stringify(settings)); } catch(e) {}
 }
 document.querySelectorAll('.seg-btn[data-vision]').forEach(b => b.addEventListener('click', () => {
@@ -919,6 +921,15 @@ document.querySelectorAll('.seg-btn[data-mode]').forEach(b => b.addEventListener
   applySettings();
   addLog('Control mode: ' + b.dataset.mode.toUpperCase());
 }));
+// Sound toggle (corner button + settings switch share the same state)
+function toggleSound() {
+  settings.sound = !settings.sound;
+  applySettings();
+  if (settings.sound) { resumeAudio(); playSound('select'); }
+  addLog(settings.sound ? 'Audio systems online' : 'Audio systems muted');
+}
+document.getElementById('sound-btn').addEventListener('click', toggleSound);
+document.getElementById('opt-sound').addEventListener('click', toggleSound);
 // Accordion: only one drawer section open at a time
 document.querySelectorAll('.expand-toggle').forEach(h => h.addEventListener('click', () => {
   const body = document.getElementById(h.dataset.acc);
@@ -1854,7 +1865,7 @@ function initAudio() {
 function resumeAudio() { if (audio && audio.state === 'suspended') audio.resume(); }
 
 function playSound(type) {
-  if (!audio) return;
+  if (!audio || !settings.sound) return;
   try {
     const o=audio.createOscillator(), g=audio.createGain(), f=audio.createBiquadFilter();
     o.connect(f); f.connect(g); g.connect(audio.destination);
