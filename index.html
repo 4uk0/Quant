@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QUANTUM REACTOR</title>
+<style>
+:root {
+  --cyan: #00d4ff;
+  --font: 'Bahnschrift', 'Segoe UI', 'Arial Narrow', sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+body.light { background: #dce9f3; }
+canvas#c { display: block; cursor: crosshair; touch-action: none; }
+#ui {
+  position: fixed; inset: 0; pointer-events: none; z-index: 10;
+  font-family: var(--font); color: #bfe6ff;
+  perspective: 1100px;
+}
+body.light #ui { color: #15405f; }
+
+/* ── Screen frame ─────────────────────────────── */
+#frame {
+  position: absolute; inset: 6px;
+  border: 1px solid rgba(0,180,255,0.18);
+  border-radius: 18px;
+  box-shadow: inset 0 0 60px rgba(0,80,180,0.08), 0 0 24px rgba(0,120,255,0.07);
+}
+body.light #frame { border-color: rgba(0,120,200,0.3); box-shadow: inset 0 0 60px rgba(120,170,220,0.15); }
+.corner {
+  position: absolute; width: 26px; height: 26px;
+  border-color: rgba(0,212,255,0.75); border-style: solid; border-width: 0;
+  filter: drop-shadow(0 0 6px rgba(0,200,255,0.8));
+}
+body.light .corner { border-color: rgba(0,130,210,0.85); }
+.corner.tl { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 18px; }
+.corner.tr { top: -1px; right: -1px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 18px; }
+.corner.bl { bottom: -1px; left: -1px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 18px; }
+.corner.br { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 18px; }
+
+/* ── Top HUD (fake-3D: transform driven by JS) ── */
+#hud {
+  position: absolute; top: 14px; left: 50%;
+  transform: translateX(-50%);
+  transform-style: preserve-3d;
+  will-change: transform;
+  display: flex; align-items: stretch;
+  background: linear-gradient(180deg, rgba(4,18,42,0.92), rgba(1,8,22,0.88));
+  border: 1px solid rgba(0,180,255,0.28);
+  border-radius: 12px;
+  box-shadow: 0 0 28px rgba(0,120,255,0.14), inset 0 1px 0 rgba(120,220,255,0.12), 0 18px 30px -18px rgba(0,0,0,0.8);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+}
+body.light #hud {
+  background: linear-gradient(180deg, rgba(255,255,255,0.93), rgba(228,240,250,0.9));
+  border-color: rgba(0,130,210,0.4);
+  box-shadow: 0 0 28px rgba(0,120,255,0.12), 0 18px 30px -18px rgba(40,80,120,0.5);
+}
+#hud::before {
+  content:''; position:absolute; inset:0;
+  background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,180,255,0.018) 3px 4px);
+  pointer-events:none;
+}
+.hud-seg { display: flex; align-items: center; gap: 10px; padding: 10px 22px; position: relative; }
+.hud-seg + .hud-seg::before {
+  content: ''; position: absolute; left: 0; top: 18%; bottom: 18%; width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(0,200,255,0.4), transparent);
+}
+.hud-icon { width: 30px; height: 30px; flex-shrink: 0; }
+.hud-text { display: flex; flex-direction: column; }
+.hud-label {
+  font-size: 9px; letter-spacing: 2.5px; font-weight: 300;
+  color: rgba(120,200,255,0.66); text-transform: uppercase;
+  margin-bottom: 1px; white-space: nowrap;
+}
+body.light .hud-label { color: rgba(20,90,150,0.8); }
+.hud-value {
+  font-size: 21px; font-weight: 600; letter-spacing: 1px; color: #eaf7ff;
+  text-shadow: 0 0 14px rgba(0,190,255,0.9), 0 0 3px #fff;
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+body.light .hud-value { color: #07314f; text-shadow: 0 0 10px rgba(0,160,255,0.4); }
+.hud-value.gold { color: #fff3cf; text-shadow: 0 0 16px rgba(255,200,60,0.95), 0 0 3px #fff; }
+body.light .hud-value.gold { color: #7a5200; text-shadow: 0 0 10px rgba(255,180,40,0.5); }
+.hud-unit { font-size: 11px; font-weight: 300; color: rgba(140,210,255,0.7); margin-left: 2px; }
+body.light .hud-unit { color: rgba(20,90,150,0.7); }
+
+/* ── Event charge bar ─────────────────────────── */
+#event-bar {
+  position: absolute; top: 76px; left: 50%; transform: translateX(-50%);
+  will-change: transform;
+  width: 340px; height: 14px; display: flex; align-items: center; gap: 8px;
+}
+#event-bar .eb-label { font-size: 8px; letter-spacing: 2px; color: rgba(120,200,255,0.55); white-space: nowrap; }
+body.light #event-bar .eb-label { color: rgba(20,90,150,0.75); }
+#event-track {
+  flex: 1; height: 4px; border-radius: 3px;
+  background: rgba(0,120,200,0.14);
+  border: 1px solid rgba(0,180,255,0.18);
+  overflow: hidden;
+}
+body.light #event-track { background: rgba(0,120,200,0.12); border-color: rgba(0,130,210,0.35); }
+#event-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #0090ff, #00e8ff, #b06aff);
+  box-shadow: 0 0 8px rgba(0,200,255,0.9);
+  transition: width 0.4s ease;
+}
+#event-bar.charged #event-fill { animation: ebpulse 0.8s infinite alternate; }
+@keyframes ebpulse { from { filter: brightness(1); } to { filter: brightness(1.8); } }
+
+/* ── Lightspeed timer ─────────────────────────── */
+#timer-bar {
+  position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+  width: 340px; height: 14px; display: flex; align-items: center; gap: 8px;
+}
+#timer-bar.hidden { display: none; }
+#timer-bar .eb-label { font-size: 8px; letter-spacing: 2px; color: rgba(255,200,120,0.65); white-space: nowrap; }
+body.light #timer-bar .eb-label { color: rgba(160,100,10,0.85); }
+#timer-track {
+  flex: 1; height: 4px; border-radius: 3px;
+  background: rgba(200,120,0,0.14);
+  border: 1px solid rgba(255,180,60,0.22);
+  overflow: hidden;
+}
+#timer-fill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, #ff7a00, #ffd866);
+  box-shadow: 0 0 8px rgba(255,180,40,0.9);
+}
+#timer-num {
+  font-size: 11px; font-weight: 600; min-width: 22px; text-align: right;
+  color: #ffe9b0; text-shadow: 0 0 8px rgba(255,180,40,0.8);
+  font-variant-numeric: tabular-nums;
+}
+body.light #timer-num { color: #8a5d00; text-shadow: none; }
+#timer-bar.low #timer-fill { background: linear-gradient(90deg, #ff2040, #ff8866); animation: ebpulse 0.4s infinite alternate; }
+#timer-bar.low #timer-num { color: #ff8a8a; }
+
+/* ── Game over ────────────────────────────────── */
+#gameover {
+  position: absolute; inset: 0; z-index: 50;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: radial-gradient(circle at 50% 45%, rgba(40,0,10,0.55), rgba(0,0,5,0.88));
+  opacity: 0; pointer-events: none; transition: opacity .6s;
+}
+#gameover.show { opacity: 1; pointer-events: auto; }
+#gameover .go-main {
+  font-size: 46px; font-weight: 700; letter-spacing: 14px; color: #ffb0a0;
+  text-shadow: 0 0 30px rgba(255,60,40,0.9); text-transform: uppercase;
+}
+#gameover .go-sub { font-size: 11px; letter-spacing: 5px; color: rgba(255,180,160,0.7); text-transform: uppercase; }
+#gameover .go-score {
+  font-size: 34px; font-weight: 600; color: #fff3cf; margin-top: 14px;
+  text-shadow: 0 0 20px rgba(255,200,60,0.9);
+  font-variant-numeric: tabular-nums;
+}
+#go-restart {
+  margin-top: 22px; padding: 12px 34px;
+  font-family: var(--font); font-size: 12px; letter-spacing: 3px; font-weight: 600;
+  color: #bfe6ff; background: rgba(0,40,90,0.5);
+  border: 1px solid rgba(0,180,255,0.5); border-radius: 8px; cursor: pointer;
+  transition: box-shadow .2s, border-color .2s;
+}
+#go-restart:hover { border-color: #00d4ff; box-shadow: 0 0 24px rgba(0,180,255,0.5); }
+
+/* ── Cog / menu ───────────────────────────────── */
+#cog-btn {
+  position: absolute; top: 18px; right: 22px; z-index: 40;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(3,15,36,0.85);
+  border: 1px solid rgba(0,180,255,0.35);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; pointer-events: auto;
+  transition: border-color .2s, box-shadow .2s;
+  box-shadow: 0 0 16px rgba(0,120,255,0.12);
+}
+body.light #cog-btn { background: rgba(255,255,255,0.9); border-color: rgba(0,130,210,0.45); }
+#cog-btn:hover { border-color: var(--cyan); box-shadow: 0 0 22px rgba(0,180,255,0.4); }
+#cog-btn svg {
+  width: 24px; height: 24px;
+  fill: #7fd4ff;
+  filter: drop-shadow(0 0 4px rgba(0,180,255,0.8));
+  transition: transform .5s cubic-bezier(.3,1.4,.4,1);
+}
+body.light #cog-btn svg { fill: #1571ad; }
+#cog-btn.open svg { transform: rotate(90deg); }
+
+/* ── Drawer ───────────────────────────────────── */
+#drawer {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 312px; z-index: 30;
+  background: linear-gradient(270deg, rgba(2,10,26,0.97), rgba(2,12,30,0.92));
+  border-left: 1px solid rgba(0,180,255,0.3);
+  box-shadow: -20px 0 60px rgba(0,0,0,0.6);
+  transform: translateX(105%);
+  transition: transform .45s cubic-bezier(.22,1,.3,1);
+  pointer-events: auto;
+  padding: 74px 18px 18px;
+  display: flex; flex-direction: column; gap: 13px;
+  overflow-y: auto;
+}
+body.light #drawer {
+  background: linear-gradient(270deg, rgba(245,250,254,0.97), rgba(232,242,250,0.95));
+  border-left-color: rgba(0,130,210,0.35);
+  box-shadow: -20px 0 60px rgba(60,100,140,0.3);
+}
+#drawer.open { transform: translateX(0); }
+#drawer > * { flex-shrink: 0; }
+body.light .particle-name { filter: brightness(0.55) saturate(1.8); }
+#drawer::-webkit-scrollbar { width: 4px; }
+#drawer::-webkit-scrollbar-thumb { background: rgba(0,180,255,0.3); }
+
+.panel-title {
+  font-size: 9px; letter-spacing: 3.5px; color: rgba(0,200,255,0.6);
+  text-transform: uppercase; font-weight: 400;
+  border-bottom: 1px solid rgba(0,180,255,0.22);
+  padding-bottom: 5px;
+  display: flex; align-items: center; gap: 6px;
+}
+body.light .panel-title { color: rgba(0,110,180,0.85); border-bottom-color: rgba(0,130,210,0.3); }
+.panel-title::before { content:''; width: 5px; height: 5px; background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+
+/* settings */
+.setting-row {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; letter-spacing: 1px; color: rgba(170,215,250,0.85);
+}
+body.light .setting-row { color: #235a82; }
+.switch {
+  width: 38px; height: 19px; border-radius: 11px; cursor: pointer;
+  background: rgba(0,100,180,0.25); border: 1px solid rgba(0,180,255,0.35);
+  position: relative; transition: background .25s;
+}
+.switch .knob {
+  position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%;
+  background: #7fd4ff; box-shadow: 0 0 8px rgba(0,200,255,0.8);
+  transition: left .25s;
+}
+.switch.on { background: rgba(0,190,255,0.5); }
+.switch.on .knob { left: 21px; background: #fff; }
+.seg { display: flex; border: 1px solid rgba(0,180,255,0.35); border-radius: 6px; overflow: hidden; }
+.seg-btn {
+  font-family: var(--font); font-size: 9px; letter-spacing: 1.5px;
+  padding: 5px 12px; background: transparent; border: none; cursor: pointer;
+  color: rgba(140,200,250,0.6);
+}
+.seg-btn.on { background: rgba(0,170,255,0.25); color: #eaf7ff; text-shadow: 0 0 8px rgba(0,200,255,0.8); }
+body.light .seg-btn { color: rgba(30,90,140,0.6); }
+body.light .seg-btn.on { background: rgba(0,150,230,0.18); color: #0a4268; text-shadow: none; }
+
+/* story expandable */
+.expand-toggle { cursor: pointer; }
+.expand-toggle .chev { margin-left: auto; transition: transform .3s; font-size: 10px; }
+.expand-toggle.open .chev { transform: rotate(180deg); }
+.expand-body {
+  max-height: 0; overflow: hidden; transition: max-height .45s ease;
+  font-size: 10.5px; font-weight: 300; line-height: 1.65;
+  color: rgba(160,205,245,0.8);
+}
+body.light .expand-body { color: #2c5f87; }
+.expand-body.open { max-height: 400px; }
+.expand-body p { margin: 8px 2px; }
+.acc-pad { display: flex; flex-direction: column; gap: 12px; padding: 10px 2px 4px; }
+.expand-body .st-hl { color: #9fdcff; font-weight: 600; }
+body.light .expand-body .st-hl { color: #0a5d96; }
+
+.particle-entry { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid rgba(0,180,255,0.07); }
+.particle-icon { width: 30px; height: 30px; flex-shrink: 0; }
+.particle-name { font-size: 11px; letter-spacing: 1.2px; font-weight: 600; margin-bottom: 1px; }
+.particle-desc { font-size: 9px; font-weight: 300; color: rgba(130,180,225,0.65); line-height: 1.35; }
+body.light .particle-desc { color: #41719a; }
+
+.stability-bar { display: flex; align-items: center; gap: 8px; font-size: 9px; font-weight: 300; color: rgba(140,200,255,0.7); }
+body.light .stability-bar { color: #2c5f87; }
+.stability-bar span { width: 96px; }
+.bar-track { flex: 1; height: 3px; background: rgba(0,180,255,0.12); border-radius: 2px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 2px; transition: width .5s ease; }
+.bar-fill.em { background: linear-gradient(90deg,#0af,#8ff); box-shadow: 0 0 5px #0af; }
+.bar-fill.sf { background: linear-gradient(90deg,#fa0,#ff8); box-shadow: 0 0 5px #fa0; }
+.bar-fill.wf { background: linear-gradient(90deg,#a0f,#d8f); box-shadow: 0 0 5px #a0f; }
+.bar-fill.gv { background: linear-gradient(90deg,#0f8,#8fe); box-shadow: 0 0 5px #0f8; }
+
+.log-entries { display: flex; flex-direction: column; gap: 3px; }
+.log-entry { font-size: 9px; font-weight: 300; color: rgba(0,210,255,0.62); line-height: 1.4; }
+body.light .log-entry { color: #1d6f9e; }
+.log-entry::before { content: '› '; color: rgba(0,200,255,0.32); }
+.log-entry.gold { color: rgba(255,215,120,0.8); }
+body.light .log-entry.gold { color: #9a6b00; }
+
+.reactor-mini-wrap { display: flex; justify-content: center; }
+#reactor-mini { width: 170px; height: 170px; }
+
+/* ── Bottom ability bar ───────────────────────── */
+#bottom-bar {
+  position: absolute; bottom: 18px; left: 50%;
+  transform: translateX(-50%);
+  will-change: transform;
+  display: flex; align-items: flex-end; gap: 14px;
+  padding: 10px 22px 8px;
+  background: linear-gradient(180deg, rgba(3,14,34,0.85), rgba(1,7,18,0.9));
+  border: 1px solid rgba(0,180,255,0.22);
+  border-radius: 14px;
+  box-shadow: 0 0 24px rgba(0,120,255,0.1), 0 -14px 28px -18px rgba(0,0,0,0.7);
+  pointer-events: auto;
+}
+body.light #bottom-bar {
+  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(225,238,248,0.9));
+  border-color: rgba(0,130,210,0.4);
+}
+.ability { display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; }
+.ability-icon {
+  width: 52px; height: 52px; border-radius: 50%;
+  border: 1px solid rgba(0,180,255,0.35);
+  background: radial-gradient(circle at 50% 35%, rgba(0,60,140,0.5), rgba(0,10,30,0.9));
+  position: relative;
+  transition: border-color .2s, box-shadow .2s, transform .15s;
+}
+body.light .ability-icon { background: radial-gradient(circle at 50% 35%, rgba(200,228,248,0.9), rgba(160,200,230,0.85)); border-color: rgba(0,130,210,0.45); }
+.ability:hover .ability-icon { border-color: rgba(0,220,255,0.9); box-shadow: 0 0 18px rgba(0,180,255,0.45); transform: translateY(-2px); }
+.ability.armed .ability-icon {
+  border-color: #ffe066; box-shadow: 0 0 22px rgba(255,200,60,0.6);
+  animation: armPulse 0.8s infinite alternate;
+}
+@keyframes armPulse { from { box-shadow: 0 0 12px rgba(255,200,60,0.4); } to { box-shadow: 0 0 26px rgba(255,210,80,0.85); } }
+.ability.depleted { opacity: 0.32; pointer-events: none; }
+.ability-icon canvas { width: 100%; height: 100%; }
+.ability-count {
+  position: absolute; top: -3px; right: -3px;
+  min-width: 17px; height: 17px; border-radius: 9px;
+  background: rgba(10,20,40,0.95);
+  border: 1px solid rgba(255,210,100,0.7);
+  color: #ffe9b0; font-size: 10px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  text-shadow: 0 0 6px rgba(255,190,60,0.9);
+  padding: 0 3px;
+}
+body.light .ability-count { background: #fff8e8; color: #8a5d00; text-shadow: none; }
+.ability-label {
+  font-size: 8px; letter-spacing: 1.6px; font-weight: 300;
+  color: rgba(130,195,250,0.7); text-transform: uppercase; text-align: center; line-height: 1.3;
+}
+body.light .ability-label { color: #2c5f87; }
+
+/* ── Event banner ─────────────────────────────── */
+#banner {
+  position: absolute; top: 38%; left: 50%; transform: translate(-50%,-50%) scale(0.92);
+  text-align: center; opacity: 0; pointer-events: none;
+  transition: opacity .35s, transform .35s;
+}
+#banner.show { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+#banner .b-main {
+  font-size: 44px; font-weight: 700; letter-spacing: 12px; color: #fff;
+  text-shadow: 0 0 24px var(--cyan), 0 0 60px rgba(0,120,255,0.8);
+  text-transform: uppercase;
+}
+body.light #banner .b-main { color: #073a5c; text-shadow: 0 0 24px rgba(0,170,255,0.7); }
+#banner .b-sub {
+  font-size: 12px; letter-spacing: 5px; color: rgba(150,220,255,0.8);
+  text-transform: uppercase; margin-top: 6px; font-weight: 300;
+}
+body.light #banner .b-sub { color: #2c6f9e; }
+
+@media (max-width: 980px) {
+  .hud-seg { padding: 8px 12px; gap: 7px; }
+  .hud-value { font-size: 15px; }
+  .hud-label { font-size: 7px; letter-spacing: 1.5px; }
+  .hud-icon { width: 20px; height: 20px; }
+  #banner .b-main { font-size: 26px; letter-spacing: 6px; }
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="frame">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+
+  <div id="hud">
+    <div class="hud-seg">
+      <canvas class="hud-icon" id="hi-stability" width="60" height="60"></canvas>
+      <div class="hud-text">
+        <div class="hud-label">Quantum Stability</div>
+        <div class="hud-value" id="hv-stability">97.6<span class="hud-unit">%</span></div>
+      </div>
+    </div>
+    <div class="hud-seg">
+      <canvas class="hud-icon" id="hi-energy" width="60" height="60"></canvas>
+      <div class="hud-text">
+        <div class="hud-label">Energy Output</div>
+        <div class="hud-value" id="hv-energy">3.42<span class="hud-unit">TW</span></div>
+      </div>
+    </div>
+    <div class="hud-seg">
+      <canvas class="hud-icon" id="hi-coherence" width="60" height="60"></canvas>
+      <div class="hud-text">
+        <div class="hud-label">Coherence</div>
+        <div class="hud-value" id="hv-coherence">99.2<span class="hud-unit">%</span></div>
+      </div>
+    </div>
+    <div class="hud-seg">
+      <canvas class="hud-icon" id="hi-temp" width="60" height="60"></canvas>
+      <div class="hud-text">
+        <div class="hud-label">Core Temp</div>
+        <div class="hud-value" id="hv-temp">4.2<span class="hud-unit">K</span></div>
+      </div>
+    </div>
+    <div class="hud-seg">
+      <canvas class="hud-icon" id="hi-score" width="60" height="60"></canvas>
+      <div class="hud-text">
+        <div class="hud-label">Score</div>
+        <div class="hud-value gold" id="hv-score">0</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="event-bar">
+    <span class="eb-label">COSMIC EVENT</span>
+    <div id="event-track"><div id="event-fill"></div></div>
+  </div>
+
+  <div id="timer-bar" class="hidden">
+    <span class="eb-label">REACTOR WINDOW</span>
+    <div id="timer-track"><div id="timer-fill"></div></div>
+    <span id="timer-num">90</span>
+  </div>
+
+  <div id="cog-btn" title="Systems panel">
+    <svg viewBox="0 0 24 24">
+      <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+    </svg>
+  </div>
+
+  <div id="drawer">
+    <div class="panel-title expand-toggle open" data-acc="acc-settings">Settings <span class="chev">▾</span></div>
+    <div class="expand-body open" id="acc-settings">
+      <div class="acc-pad">
+        <div class="setting-row">
+          <span>VISION</span>
+          <div class="seg">
+            <button class="seg-btn on" data-vision="dark">DARK</button>
+            <button class="seg-btn" data-vision="white">WHITE</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span>CONTROL</span>
+          <div class="seg">
+            <button class="seg-btn on" data-mode="select">SELECT</button>
+            <button class="seg-btn" data-mode="drag">DRAG</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span>MODE</span>
+          <div class="seg">
+            <button class="seg-btn on" data-speed="standard">STANDARD</button>
+            <button class="seg-btn" data-speed="lightspeed">LIGHTSPEED</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-title expand-toggle" data-acc="acc-story">Mission Briefing <span class="chev">▾</span></div>
+    <div class="expand-body" id="acc-story">
+      <p><span class="st-hl">STARDATE 2417.6</span> — You are the Reactor Operator of the deep-space vessel <span class="st-hl">ASC PROMETHEUS</span>, adrift at the edge of the Perseus Void after a failed jump.</p>
+      <p>The ship's experimental quantum reactor is the only thing standing between the crew and the dark. Align unstable particles into resonant triads to feed the core — every chain raises the energy output and steadies the containment field.</p>
+      <p>But the Void answers back. <span class="st-hl">Black holes</span>, <span class="st-hl">neutron stars</span> and <span class="st-hl">quantum storms</span> tear at the lattice as the reactor's signature grows. Harness them — their fury feeds the core faster than any match.</p>
+      <p>Stabilize the reactor. Restore full power. Bring the <span class="st-hl">Prometheus</span> home.</p>
+    </div>
+
+    <div class="panel-title expand-toggle" data-acc="acc-reactor">Quantum Reactor <span class="chev">▾</span></div>
+    <div class="expand-body" id="acc-reactor">
+      <div class="reactor-mini-wrap"><canvas id="reactor-mini" width="170" height="170"></canvas></div>
+    </div>
+
+    <div class="panel-title expand-toggle" data-acc="acc-index">Particle Index <span class="chev">▾</span></div>
+    <div class="expand-body" id="acc-index">
+      <div class="particle-entry">
+        <canvas class="particle-icon" id="pi-electron"></canvas>
+        <div><div class="particle-name" style="color:#8cf">ELECTRON (−1)</div>
+        <div class="particle-desc">Light particle · high mobility · chain lightning on match</div></div>
+      </div>
+      <div class="particle-entry">
+        <canvas class="particle-icon" id="pi-proton"></canvas>
+        <div><div class="particle-name" style="color:#fd8">PROTON (+1)</div>
+        <div class="particle-desc">Positive charge · strong force · fusion burst on match</div></div>
+      </div>
+      <div class="particle-entry">
+        <canvas class="particle-icon" id="pi-neutron"></canvas>
+        <div><div class="particle-name" style="color:#cde">NEUTRON (0)</div>
+        <div class="particle-desc">Neutral particle · stable mass · stabilization wave</div></div>
+      </div>
+      <div class="particle-entry">
+        <canvas class="particle-icon" id="pi-photon"></canvas>
+        <div><div class="particle-name" style="color:#fc4">PHOTON (γ)</div>
+        <div class="particle-desc">Light quanta · energy wave · row laser on match</div></div>
+      </div>
+      <div class="particle-entry">
+        <canvas class="particle-icon" id="pi-prime"></canvas>
+        <div><div class="particle-name" style="color:#c8f">PRIME (∅)</div>
+        <div class="particle-desc">Exotic matter · rare · singularity on match</div></div>
+      </div>
+    </div>
+
+    <div class="panel-title expand-toggle" data-acc="acc-matrix">Stability Matrix <span class="chev">▾</span></div>
+    <div class="expand-body" id="acc-matrix">
+    <div style="display:flex;flex-direction:column;gap:6px;padding:6px 2px">
+      <div class="stability-bar"><span>Electromagnetic</span><div class="bar-track"><div class="bar-fill em" id="bar-em" style="width:50%"></div></div></div>
+      <div class="stability-bar"><span>Strong Force</span><div class="bar-track"><div class="bar-fill sf" id="bar-sf" style="width:38%"></div></div></div>
+      <div class="stability-bar"><span>Weak Force</span><div class="bar-track"><div class="bar-fill wf" id="bar-wf" style="width:28%"></div></div></div>
+      <div class="stability-bar"><span>Gravity</span><div class="bar-track"><div class="bar-fill gv" id="bar-gv" style="width:18%"></div></div></div>
+    </div>
+
+    </div>
+
+    <div class="panel-title expand-toggle" data-acc="acc-log">System Log <span class="chev">▾</span></div>
+    <div class="expand-body" id="acc-log">
+      <div class="log-entries" id="sys-log" style="padding:6px 2px"></div>
+    </div>
+  </div>
+
+  <div id="bottom-bar">
+    <div class="ability" data-ability="charged" title="Detonate a cell and its neighbors">
+      <div class="ability-icon"><canvas id="ab-charged" width="104" height="104"></canvas><span class="ability-count" id="ac-charged">3</span></div>
+      <div class="ability-label">Charged<br>Particle</div>
+    </div>
+    <div class="ability" data-ability="fusion" title="Fusion explosion — radius 2">
+      <div class="ability-icon"><canvas id="ab-fusion" width="104" height="104"></canvas><span class="ability-count" id="ac-fusion">3</span></div>
+      <div class="ability-label">Fusion<br>Burst</div>
+    </div>
+    <div class="ability" data-ability="stability" title="Convert area to one particle type">
+      <div class="ability-icon"><canvas id="ab-stability" width="104" height="104"></canvas><span class="ability-count" id="ac-stability">3</span></div>
+      <div class="ability-label">Stability<br>Field</div>
+    </div>
+    <div class="ability" data-ability="lance" title="Clear an entire row">
+      <div class="ability-icon"><canvas id="ab-lance" width="104" height="104"></canvas><span class="ability-count" id="ac-lance">3</span></div>
+      <div class="ability-label">Photon<br>Lance</div>
+    </div>
+    <div class="ability" data-ability="singularity" title="Erase all particles of the chosen type">
+      <div class="ability-icon" style="border-color:rgba(176,106,255,0.55)"><canvas id="ab-singularity" width="104" height="104"></canvas><span class="ability-count" id="ac-singularity">1</span></div>
+      <div class="ability-label">Singularity</div>
+    </div>
+  </div>
+
+  <div id="banner"><div class="b-main" id="banner-main"></div><div class="b-sub" id="banner-sub"></div></div>
+
+  <div id="gameover">
+    <div class="go-main">Reactor Shutdown</div>
+    <div class="go-sub">Containment window expired</div>
+    <div class="go-score" id="go-score">0</div>
+    <button id="go-restart">REINITIALIZE REACTOR</button>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
