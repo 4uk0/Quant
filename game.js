@@ -1085,22 +1085,22 @@ function drawByType(type, p, r, t) {
 
 function drawElectron(p, r, t) {
   const rot = p.rot + t * 0.0012, ph = p.phase;
-  ctx.shadowBlur = 18; ctx.shadowColor = '#0044ff';
+  ctx.shadowBlur = r*0.55; ctx.shadowColor = '#0044ff';
   const g = ctx.createRadialGradient(0,0,0,0,0,r*0.6);
   g.addColorStop(0,'#bbddff'); g.addColorStop(0.5,'#44aaff'); g.addColorStop(1,'rgba(0,60,180,0)');
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0,0,r*0.6,0,Math.PI*2); ctx.fill();
 
   ctx.save(); ctx.rotate(rot);
-  ctx.shadowBlur=8; ctx.shadowColor='#44aaff';
-  ctx.strokeStyle='rgba(100,200,255,0.88)'; ctx.lineWidth=1.5;
+  ctx.shadowBlur=r*0.25; ctx.shadowColor='#44aaff';
+  ctx.strokeStyle='rgba(100,200,255,0.88)'; ctx.lineWidth=Math.max(0.9, r*0.05);
   ctx.beginPath(); ctx.ellipse(0,0,r*0.92,r*0.28,0,0,Math.PI*2); ctx.stroke();
   const ea = t*0.003+ph;
-  ctx.fillStyle='#fff'; ctx.shadowBlur=10;
-  ctx.beginPath(); ctx.arc(r*0.92*Math.cos(ea), r*0.28*Math.sin(ea), 2.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.shadowBlur=r*0.3;
+  ctx.beginPath(); ctx.arc(r*0.92*Math.cos(ea), r*0.28*Math.sin(ea), Math.max(1.3, r*0.08), 0, Math.PI*2); ctx.fill();
   ctx.restore();
 
   ctx.save(); ctx.rotate(-rot*0.7+1.2);
-  ctx.strokeStyle='rgba(80,150,255,0.55)'; ctx.lineWidth=1;
+  ctx.strokeStyle='rgba(80,150,255,0.55)'; ctx.lineWidth=Math.max(0.7, r*0.033);
   ctx.beginPath(); ctx.ellipse(0,0,r*0.78,r*0.22,Math.PI/3,0,Math.PI*2); ctx.stroke();
   ctx.restore();
   ctx.shadowBlur=0;
@@ -1109,20 +1109,20 @@ function drawElectron(p, r, t) {
 function drawProton(p, r, t) {
   const rot = p.rot + t*0.0008;
   ctx.save(); ctx.rotate(rot);
-  ctx.shadowBlur=18; ctx.shadowColor='#ff8800';
-  ctx.strokeStyle='rgba(255,200,60,0.9)'; ctx.lineWidth=1.5;
+  ctx.shadowBlur=r*0.55; ctx.shadowColor='#ff8800';
+  ctx.strokeStyle='rgba(255,200,60,0.9)'; ctx.lineWidth=Math.max(0.9, r*0.05);
   ctx.beginPath();
   for(let i=0;i<6;i++){const a=i*Math.PI/3; i===0?ctx.moveTo(r*0.92*Math.cos(a),r*0.92*Math.sin(a)):ctx.lineTo(r*0.92*Math.cos(a),r*0.92*Math.sin(a));}
   ctx.closePath(); ctx.stroke();
   ctx.rotate(Math.PI/6);
-  ctx.strokeStyle='rgba(255,180,40,0.38)'; ctx.lineWidth=0.8;
+  ctx.strokeStyle='rgba(255,180,40,0.38)'; ctx.lineWidth=Math.max(0.6, r*0.025);
   ctx.beginPath();
   for(let i=0;i<6;i++){const a=i*Math.PI/3; i===0?ctx.moveTo(r*0.52*Math.cos(a),r*0.52*Math.sin(a)):ctx.lineTo(r*0.52*Math.cos(a),r*0.52*Math.sin(a));}
   ctx.closePath(); ctx.stroke();
   ctx.restore();
   const g=ctx.createRadialGradient(0,0,0,0,0,r*0.52);
   g.addColorStop(0,'#fff'); g.addColorStop(0.35,'#ffee88'); g.addColorStop(0.7,'#ff9900'); g.addColorStop(1,'rgba(255,60,0,0)');
-  ctx.shadowBlur=26; ctx.shadowColor='#ffaa00';
+  ctx.shadowBlur=r*0.8; ctx.shadowColor='#ffaa00';
   ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r*0.52,0,Math.PI*2); ctx.fill();
   ctx.shadowBlur=0;
 }
@@ -1130,37 +1130,37 @@ function drawProton(p, r, t) {
 function drawNeutron(p, r, t) {
   const pulse = 1 + 0.05*Math.sin(t*0.002+p.phase);
   ctx.save(); ctx.rotate(p.rot + t*0.0005);
-  ctx.shadowBlur=12; ctx.shadowColor='#8899bb';
+  ctx.shadowBlur=r*0.37; ctx.shadowColor='#8899bb';
   ctx.strokeStyle='rgba(180,210,240,0.8)'; ctx.fillStyle='rgba(100,150,200,0.1)';
-  ctx.lineWidth=1.2;
+  ctx.lineWidth=Math.max(0.8, r*0.04);
   ctx.beginPath();
   ctx.moveTo(0,-r*0.88*pulse); ctx.lineTo(r*0.72*pulse,0); ctx.lineTo(0,r*0.88*pulse); ctx.lineTo(-r*0.72*pulse,0);
   ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle='rgba(200,220,255,0.4)'; ctx.lineWidth=0.7;
+  ctx.strokeStyle='rgba(200,220,255,0.4)'; ctx.lineWidth=Math.max(0.5, r*0.022);
   ctx.beginPath(); ctx.moveTo(0,-r*0.88*pulse); ctx.lineTo(0,r*0.88*pulse);
   ctx.moveTo(-r*0.72*pulse,0); ctx.lineTo(r*0.72*pulse,0); ctx.stroke();
   ctx.restore();
   const g=ctx.createRadialGradient(0,0,0,0,0,r*0.42);
   g.addColorStop(0,'#eef5ff'); g.addColorStop(0.5,'#99bbcc'); g.addColorStop(1,'rgba(60,100,140,0)');
-  ctx.shadowBlur=10; ctx.shadowColor='#aabbcc';
+  ctx.shadowBlur=r*0.3; ctx.shadowColor='#aabbcc';
   ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r*0.42,0,Math.PI*2); ctx.fill();
   ctx.shadowBlur=0;
 }
 
 function drawPhoton(p, r, t) {
   const off = t*0.004+p.phase, w=r*1.75, h=r*0.33;
-  ctx.shadowBlur=18; ctx.shadowColor='#ffaa00';
-  ctx.strokeStyle='rgba(255,220,40,0.94)'; ctx.lineWidth=2;
+  ctx.shadowBlur=r*0.55; ctx.shadowColor='#ffaa00';
+  ctx.strokeStyle='rgba(255,220,40,0.94)'; ctx.lineWidth=Math.max(1.1, r*0.065);
   ctx.beginPath();
   for(let i=0;i<=50;i++){const px=-w/2+w*i/50, py=h*Math.sin((i/50)*Math.PI*3.5+off); i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);}
   ctx.stroke();
-  ctx.shadowBlur=10;
+  ctx.shadowBlur=r*0.3;
   for(let i=0;i<5;i++){
     const frac=(i/5+((t*0.003+p.phase*0.1)%1))%1;
     const dx=-w/2+w*frac, dy=h*Math.sin(frac*Math.PI*3.5+off);
     const a=0.4+0.6*Math.sin(t*0.006+i*1.5);
     ctx.globalAlpha=p.alpha*a; ctx.fillStyle='#fffbe0';
-    ctx.beginPath(); ctx.arc(dx,dy,2.8,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(dx,dy,Math.max(1.4, r*0.09),0,Math.PI*2); ctx.fill();
   }
   ctx.globalAlpha=p.alpha; ctx.shadowBlur=0;
 }
@@ -1168,19 +1168,19 @@ function drawPhoton(p, r, t) {
 function drawPrime(p, r, t) {
   const rot = p.rot+t*0.001;
   ctx.save(); ctx.rotate(rot);
-  ctx.shadowBlur=22; ctx.shadowColor='#7700ee';
-  ctx.strokeStyle='rgba(160,60,255,0.92)'; ctx.lineWidth=1.5;
+  ctx.shadowBlur=r*0.7; ctx.shadowColor='#7700ee';
+  ctx.strokeStyle='rgba(160,60,255,0.92)'; ctx.lineWidth=Math.max(0.9, r*0.05);
   for(let i=0;i<6;i++){const a=i*Math.PI/3; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(r*0.9*Math.cos(a),r*0.9*Math.sin(a)); ctx.stroke();}
   ctx.save(); ctx.rotate(-rot*2);
-  ctx.shadowBlur=18; ctx.shadowColor='#00ccff';
-  ctx.strokeStyle='rgba(0,200,255,0.9)'; ctx.lineWidth=1.5;
+  ctx.shadowBlur=r*0.55; ctx.shadowColor='#00ccff';
+  ctx.strokeStyle='rgba(0,200,255,0.9)'; ctx.lineWidth=Math.max(0.9, r*0.05);
   ctx.beginPath();
   for(let i=0;i<3;i++){const a=i*Math.PI*2/3+Math.PI/6; i===0?ctx.moveTo(r*0.55*Math.cos(a),r*0.55*Math.sin(a)):ctx.lineTo(r*0.55*Math.cos(a),r*0.55*Math.sin(a));}
   ctx.closePath(); ctx.stroke();
   ctx.restore(); ctx.restore();
   const g=ctx.createRadialGradient(0,0,0,0,0,r*0.38);
   g.addColorStop(0,'#cc88ff'); g.addColorStop(0.4,'#8800ff'); g.addColorStop(1,'rgba(80,0,150,0)');
-  ctx.shadowBlur=20; ctx.shadowColor='#aa44ff';
+  ctx.shadowBlur=r*0.63; ctx.shadowColor='#aa44ff';
   ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r*0.38,0,Math.PI*2); ctx.fill();
   ctx.shadowBlur=0;
 }
