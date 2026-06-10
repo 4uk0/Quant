@@ -13,6 +13,9 @@ const PT = { ELECTRON:0, PROTON:1, NEUTRON:2, PHOTON:3, PRIME:4 };
 
 let HR = 46, HW = 0, VG = 0;
 let BOARD_X = 0, BOARD_Y = 0;
+// Logical viewport size (CSS px) and device pixel ratio; the canvas backing
+// store is VW*DPR x VH*DPR so rendering stays sharp on high-density screens
+let VW = 0, VH = 0, DPR = 1;
 
 const COL_DATA = [
   { name:'ELECTRON', main:'#44aaff', glow:'#0055ff' },
@@ -425,7 +428,7 @@ function updateCosmicEvent(dt) {
       const rc = Math.floor(Math.random()*COLS), rr = Math.floor(Math.random()*ROWS);
       if (board[rr][rc]) {
         const p = hexToPixel(rc, rr);
-        addLightning(p.x, p.y - canvas.height*0.4, p.x, p.y, '#9fdcff');
+        addLightning(p.x, p.y - VH*0.4, p.x, p.y, '#9fdcff');
         addEffect('burst_electron', p.x, p.y, {duration:450});
         board[rr][rc] = null;
         score += 180;
@@ -546,7 +549,7 @@ function beginMatching(groups) {
   matchedSet = new Set(groups.flatMap(g => g.cells.map(c => `${c.col},${c.row}`)));
   groups.forEach(spawnMatchEffects);
   combo++;
-  if (combo > 1) addText(canvas.width/2, canvas.height/2-60, `CHAIN ×${combo}`, '#ffcc44', 32);
+  if (combo > 1) addText(VW/2, VH/2-60, `CHAIN ×${combo}`, '#ffcc44', 32);
   setState('MATCHING');
   playSound('match');
 }
@@ -636,7 +639,7 @@ function updateGame(dt) {
           const totalSize = matchGroups.reduce((s,g)=>s+g.size,0);
           timeLeft = Math.min(LS_MAX, timeLeft + 900 * matchGroups.length + 200 * totalSize + combo * 350);
         }
-        if (pts > 0) addText(canvas.width/2, canvas.height/2, `+${pts}`, '#88ffcc', 30);
+        if (pts > 0) addText(VW/2, VH/2, `+${pts}`, '#88ffcc', 30);
         updateHUD();
         addLog(`Energy surge +${Math.round(reactorPower)}%`);
         matchGroups = []; matchedSet = new Set(); matchT = 0;
@@ -866,14 +869,14 @@ function lerp(a, b, t) { return a + (b-a)*t; }
 
 // ── Rendering: background ────────────────────────────────────
 function drawBackground() {
-  const g = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, Math.max(canvas.width, canvas.height));
+  const g = ctx.createRadialGradient(VW/2, VH/2, 0, VW/2, VH/2, Math.max(VW, VH));
   g.addColorStop(0, theme.bgIn); g.addColorStop(1, theme.bgOut);
-  ctx.fillStyle = g; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
 
   theme.nebula.forEach(([nx,ny,nr,nc]) => {
-    const ng = ctx.createRadialGradient(nx*canvas.width, ny*canvas.height, 0, nx*canvas.width, ny*canvas.height, nr*canvas.width);
+    const ng = ctx.createRadialGradient(nx*VW, ny*VH, 0, nx*VW, ny*VH, nr*VW);
     ng.addColorStop(0, nc); ng.addColorStop(1, 'transparent');
-    ctx.fillStyle = ng; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = ng; ctx.fillRect(0, 0, VW, VH);
   });
 
   // Starfield with mouse parallax (deeper stars move less)
@@ -883,12 +886,12 @@ function drawBackground() {
     const ox = -parallax.x * 14 * depth, oy = -parallax.y * 10 * depth;
     ctx.globalAlpha = s.brightness * blink;
     ctx.fillStyle = `rgb(${theme.star})`;
-    ctx.beginPath(); ctx.arc(s.x*canvas.width + ox, s.y*canvas.height + oy, s.size, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x*VW + ox, s.y*VH + oy, s.size, 0, Math.PI*2); ctx.fill();
   });
   ctx.globalAlpha = 1;
 
   // Holographic concentric rings behind the board (mid-depth parallax)
-  const cx = canvas.width/2 - parallax.x*7, cy = canvas.height/2 + 10 - parallax.y*5;
+  const cx = VW/2 - parallax.x*7, cy = VH/2 + 10 - parallax.y*5;
   ctx.save();
   ctx.translate(cx, cy);
   for (let i = 0; i < 4; i++) {
@@ -904,9 +907,9 @@ function drawBackground() {
   ctx.setLineDash([]);
   ctx.restore();
 
-  const v = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.height*0.25, canvas.width/2, canvas.height/2, canvas.height*0.9);
+  const v = ctx.createRadialGradient(VW/2, VH/2, VH*0.25, VW/2, VH/2, VH*0.9);
   v.addColorStop(0, 'transparent'); v.addColorStop(1, theme.vignette);
-  ctx.fillStyle = v; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = v; ctx.fillRect(0, 0, VW, VH);
 }
 
 // ── Rendering: board ─────────────────────────────────────────
@@ -1245,7 +1248,7 @@ function drawEffects() {
       case 'burst_photon': {
         ctx.globalAlpha=inv; ctx.shadowBlur=22; ctx.shadowColor='#ffaa00';
         ctx.strokeStyle=`rgba(255,220,50,${inv})`; ctx.lineWidth=3.5*inv;
-        const blen=Math.max(canvas.width,canvas.height)*prog*0.8;
+        const blen=Math.max(VW,VH)*prog*0.8;
         [0,Math.PI/2,Math.PI,Math.PI*1.5].forEach(a=>{
           ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.lineTo(e.x+blen*Math.cos(a),e.y+blen*Math.sin(a)); ctx.stroke();});
         break;
@@ -1272,7 +1275,7 @@ function drawEffects() {
       case 'laser_h': {
         ctx.globalAlpha=inv*0.92; ctx.shadowBlur=28; ctx.shadowColor='#ffcc00';
         ctx.strokeStyle=`rgba(255,220,50,${inv})`; ctx.lineWidth=4*inv;
-        ctx.beginPath(); ctx.moveTo(0,e.y); ctx.lineTo(canvas.width,e.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0,e.y); ctx.lineTo(VW,e.y); ctx.stroke();
         ctx.lineWidth=14*inv; ctx.strokeStyle=`rgba(255,240,160,${inv*0.3})`; ctx.stroke();
         break;
       }
@@ -1364,7 +1367,7 @@ function drawCosmicEvent() {
       ctx.lineCap = 'round';
       for (let axis = 0; axis < 3; axis++) {
         const a = axis*Math.PI/3 + Math.PI/6;
-        const L = Math.max(canvas.width, canvas.height) * bi;
+        const L = Math.max(VW, VH) * bi;
         ctx.strokeStyle = `rgba(220,240,255,${0.85*fade})`;
         ctx.lineWidth = 4; ctx.shadowBlur = 26; ctx.shadowColor = '#aaddff';
         ctx.beginPath();
@@ -1390,7 +1393,7 @@ function drawCosmicEvent() {
       const flash = Math.max(0, 1 - ep*2.5);
       if (flash > 0) {
         ctx.fillStyle = `rgba(255,240,210,${flash*0.5})`;
-        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillRect(0,0,VW,VH);
       }
       for (let s = 0; s < 3; s++) {
         const rr = HR * (1 + ep*9) * (1 - s*0.18);
@@ -1410,18 +1413,18 @@ function drawCosmicEvent() {
     // ambient storm glow + drifting energy filaments
     const fade = prog > 0.85 ? (1-prog)/0.15 : Math.min(1, prog/0.15);
     ctx.globalAlpha = fade * 0.5;
-    const sg = ctx.createLinearGradient(0,0,0,canvas.height*0.5);
+    const sg = ctx.createLinearGradient(0,0,0,VH*0.5);
     sg.addColorStop(0, 'rgba(80,150,255,0.16)'); sg.addColorStop(1, 'transparent');
-    ctx.fillStyle = sg; ctx.fillRect(0,0,canvas.width,canvas.height*0.5);
+    ctx.fillStyle = sg; ctx.fillRect(0,0,VW,VH*0.5);
     ctx.globalAlpha = fade;
     for (let i = 0; i < 4; i++) {
-      const fx = (Math.sin(ev.t*0.0008+i*2.1)*0.5+0.5)*canvas.width;
+      const fx = (Math.sin(ev.t*0.0008+i*2.1)*0.5+0.5)*VW;
       ctx.strokeStyle = `rgba(150,210,255,${0.18*fade})`;
       ctx.lineWidth = 1;
       ctx.shadowBlur = 10; ctx.shadowColor = '#88ccff';
       ctx.beginPath();
       ctx.moveTo(fx, 0);
-      for (let yy = 0; yy < canvas.height; yy += 40) {
+      for (let yy = 0; yy < VH; yy += 40) {
         ctx.lineTo(fx + Math.sin(yy*0.02 + ev.t*0.003+i)*30, yy);
       }
       ctx.stroke();
@@ -1467,8 +1470,11 @@ function drawReactorMini() {
   if (!document.getElementById('drawer').classList.contains('open')) return;
   const mc = document.getElementById('reactor-mini');
   const c = mc.getContext('2d');
-  const w=mc.width, h=mc.height, t=time, pw=reactorPower/100;
-  c.clearRect(0,0,w,h);
+  const t=time, pw=reactorPower/100;
+  c.setTransform(1,0,0,1,0,0);
+  c.clearRect(0,0,mc.width,mc.height);
+  c.setTransform(2,0,0,2,0,0); // 2x backing store for sharpness
+  const w=mc.width/2, h=mc.height/2;
   const cx=w/2, cy=h/2;
 
   c.save(); c.translate(cx,cy); c.rotate(t*0.001);
@@ -1610,17 +1616,18 @@ function drawParticleIcons() {
   defs.forEach(([id]) => {
     const el = document.getElementById(id);
     if (!el) return;
-    if (el.width !== 30) { el.width = el.height = 30; }
+    if (el.width !== 60) { el.width = el.height = 60; } // 2x backing for sharpness
   });
   // Render each via the main draw functions on their own contexts
   const fake = {phase:0.5, rot:0.4, scale:1, alpha:1};
   defs.forEach(([id, fn]) => {
     const el = document.getElementById(id);
     const c = el.getContext('2d');
-    c.clearRect(0,0,30,30);
-    c.save(); c.translate(15,15);
+    c.setTransform(1,0,0,1,0,0);
+    c.clearRect(0,0,60,60);
+    c.setTransform(2,0,0,2,0,0);
+    c.translate(15,15);
     renderMini(c, fn, fake, 11, time);
-    c.restore();
   });
 }
 
@@ -1742,11 +1749,16 @@ function playSound(type) {
 
 // ── Resize & Init ─────────────────────────────────────────────
 function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  VW = window.innerWidth;
+  VH = window.innerHeight;
+  DPR = Math.min(window.devicePixelRatio || 1, 3);
+  canvas.width = Math.round(VW * DPR);
+  canvas.height = Math.round(VH * DPR);
+  canvas.style.width = VW + 'px';
+  canvas.style.height = VH + 'px';
 
   // Orientation-aware grid: tall screens get a tall board
-  const portrait = canvas.height > canvas.width * 1.05;
+  const portrait = VH > VW * 1.05;
   const wantCols = portrait ? 7 : 9, wantRows = portrait ? 9 : 7;
   const dimsChanged = wantCols !== COLS;
   COLS = wantCols; ROWS = wantRows;
@@ -1766,11 +1778,11 @@ function resize() {
   if (hudEl && barEl) {
     const timerHidden = document.getElementById('timer-bar').classList.contains('hidden');
     topEdge = hudEl.getBoundingClientRect().bottom + (timerHidden ? 26 : 46);
-    bottomEdge = canvas.height - barEl.getBoundingClientRect().top + 6;
+    bottomEdge = VH - barEl.getBoundingClientRect().top + 6;
   }
-  const sideEdge = Math.max(8, canvas.width * 0.02);
-  const freeW = canvas.width - sideEdge*2;
-  const freeH = canvas.height - topEdge - bottomEdge;
+  const sideEdge = Math.max(8, VW * 0.02);
+  const freeW = VW - sideEdge*2;
+  const freeH = VH - topEdge - bottomEdge;
   HR = Math.min(freeW/((COLS+0.5)*Math.sqrt(3)), freeH/((ROWS-1)*1.5+2)) * 0.97;
   HR = Math.max(13, Math.min(56, HR));
   HW = HR * Math.sqrt(3); VG = HR * 1.5;
@@ -1810,7 +1822,8 @@ function loop(now) {
   lastTime = now; time = now;
   updateGame(dt);
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, VW, VH);
   ctx.save();
   if (shake > 0.2) {
     ctx.translate((Math.random()-0.5)*shake*2, (Math.random()-0.5)*shake*2);
