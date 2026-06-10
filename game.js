@@ -50,7 +50,25 @@ try { Object.assign(settings, JSON.parse(localStorage.getItem('qr-settings') || 
 // Odd Cores use the hexagonal lattice, even Cores the cubic (square) lattice.
 const CORE_TIME = 90000;
 let core = 1;
-try { core = Math.max(1, (JSON.parse(localStorage.getItem('qr-progress') || '{}').core | 0) || 1); } catch(e) {}
+let totalPower = 0; // cumulative Reactor Power across all Cores (the main score)
+try {
+  const prog = JSON.parse(localStorage.getItem('qr-progress') || '{}');
+  core = Math.max(1, (prog.core | 0) || 1);
+  totalPower = Math.max(0, (prog.power | 0) || 0);
+} catch(e) {}
+
+// Every point earned feeds both the current Core's progress and the career total
+function addPower(pts) { score += pts; totalPower += pts; }
+
+// Coherence doubles as a luck stat: higher coherence = better odds that a
+// special (match-4+, special particle, ability) pays out double
+function coherenceBonusChance() { return Math.max(0, Math.min(50, (coherence - 90) * 5)); }
+function rollCoherence() { return Math.random() * 100 < coherenceBonusChance(); }
+function coherenceBonusFx(x, y) {
+  addText(x, y - HR, 'COHERENCE ×2', '#7fe8ff', 20);
+  addLog('Coherence bonus — output doubled', true);
+  coherence = Math.min(100, coherence + 0.3);
+}
 let gridMode = 'hex';          // 'hex' | 'square'
 let coreTarget = 3000;
 let levelState = 'playing';    // 'playing' | 'timeup' | 'passed'
@@ -59,7 +77,7 @@ let hudTick = 0;
 
 function coreTargetFor(n) { return 500 * n * (n + 5); }
 function saveProgress() {
-  try { localStorage.setItem('qr-progress', JSON.stringify({ core })); } catch(e) {}
+  try { localStorage.setItem('qr-progress', JSON.stringify({ core, power: totalPower })); } catch(e) {}
 }
 
 const THEMES = {
@@ -440,7 +458,7 @@ function updateCosmicEvent(dt) {
           board[r][c] = null; n++;
         }
       }
-      score += n * 250;
+      addPower(n * 250);
       addText(x, y - HR, `+${n*250}`, '#c8f', 30);
     }
   } else if (ev.type === 'neutronstar') {
@@ -467,7 +485,7 @@ function updateCosmicEvent(dt) {
           }
         }
       }
-      score += n * 200;
+      addPower(n * 200);
       addText(x, y - HR, `+${n*200}`, '#aef', 30);
       // Convert a few random survivors to neutrons (stabilization)
       for (let i = 0; i < 4; i++) {
@@ -485,7 +503,7 @@ function updateCosmicEvent(dt) {
           board[r][c] = null; n++;
         }
       }
-      score += n * 220;
+      addPower(n * 220);
       addText(x, y - HR, `+${n*220}`, '#fd8', 32);
     }
   } else if (ev.type === 'quantumstorm') {
@@ -497,7 +515,7 @@ function updateCosmicEvent(dt) {
         addLightning(p.x, p.y - VH*0.4, p.x, p.y, '#9fdcff');
         addEffect('burst_electron', p.x, p.y, {duration:450});
         board[rr][rc] = null;
-        score += 180;
+        addPower(180);
         shake = 4;
       }
     }
@@ -542,7 +560,7 @@ function fireAbility(name, hex) {
   document.querySelectorAll('.ability').forEach(el => el.classList.remove('armed'));
   updateAbilityUI();
   const {x, y} = hexToPixel(hex.col, hex.row);
-  let n = 0;
+  let n = 0, gained = 0;
 
   if (name === 'charged') {
     [hex, ...getNeighbors(hex.col, hex.row)].forEach(t => {
@@ -552,7 +570,7 @@ function fireAbility(name, hex) {
         board[t.row][t.col] = null; n++;
       }
     });
-    score += n * 150; shake = 4;
+    gained = n * 150; shake = 4;
   } else if (name === 'fusion') {
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       if (board[r][c] && hexDist(c, r, hex.col, hex.row) <= 2) {
@@ -562,7 +580,7 @@ function fireAbility(name, hex) {
       }
     }
     addEffect('supernova_ring', x, y, {duration:700});
-    score += n * 170; shake = 6;
+    gained = n * 170; shake = 6;
   } else if (name === 'stability') {
     const tgt = board[hex.row][hex.col]?.type ?? PT.NEUTRON;
     for (const t of [hex, ...getNeighbors(hex.col, hex.row)]) {
@@ -578,7 +596,7 @@ function fireAbility(name, hex) {
     for (let c = 0; c < COLS; c++) {
       if (board[hex.row][c]) { board[hex.row][c] = null; n++; }
     }
-    score += n * 140; shake = 3;
+    gained = n * 140; shake = 3;
   } else if (name === 'singularity') {
     const tgt = board[hex.row][hex.col]?.type;
     if (tgt == null) { abilities[name]++; updateAbilityUI(); return; }
@@ -590,10 +608,15 @@ function fireAbility(name, hex) {
         board[r][c] = null; n++;
       }
     }
-    score += n * 220; shake = 5;
+    gained = n * 220; shake = 5;
     addLog(`SINGULARITY: ${COL_DATA[tgt].name} erased`, true);
   }
 
+  if (gained > 0) {
+    if (rollCoherence()) { gained *= 2; coherenceBonusFx(x, y); }
+    addPower(gained);
+    addText(x, y, `+${gained}`, '#ffe9b0', 26);
+  }
   chargeEvent(4);
   reactorPower = Math.min(100, reactorPower + 6);
   coreTemp = Math.min(9.9, coreTemp + 0.4);
@@ -690,7 +713,14 @@ function updateGame(dt) {
       if (matchT >= 1) {
         let pts = 0;
         matchGroups.forEach(group => {
-          pts += group.size * 100 * Math.max(1, combo);
+          let gpts = group.size * 100 * Math.max(1, combo);
+          // match-4+ can trigger a coherence payout
+          if (group.size >= 4 && rollCoherence()) {
+            gpts *= 2;
+            const mid = hexToPixel(group.cells[0].col, group.cells[0].row);
+            coherenceBonusFx(mid.x, mid.y);
+          }
+          pts += gpts;
           let specialIdx = null;
           if (group.size >= 4) specialIdx = Math.floor(group.size / 2);
           group.cells.forEach(({col,row}) => { board[row][col] = null; });
@@ -701,7 +731,7 @@ function updateGame(dt) {
             addLog(`${sp.toUpperCase()} particle generated`, true);
           }
         });
-        score += pts;
+        addPower(pts);
         reactorPower = Math.min(100, reactorPower + pts / 400);
         energyOutput = +(3.42 + reactorPower * 0.05).toFixed(2);
         stability = Math.min(100, stability + matchGroups.length * 0.4);
@@ -824,13 +854,15 @@ function activateSpecial(hex) {
   const p = board[hex.row][hex.col];
   if (!p?.special) return;
   board[hex.row][hex.col] = null;
+  let gained = 0;
+  const origin = hexToPixel(hex.col, hex.row);
 
   if (p.special === 'charged') {
     [hex, ...getNeighbors(hex.col, hex.row)].forEach(t => {
       if (!board[t.row]?.[t.col]) return;
       const pos = hexToPixel(t.col, t.row);
       addEffect('burst_proton', pos.x, pos.y, {duration:500});
-      board[t.row][t.col] = null; score += 150;
+      board[t.row][t.col] = null; gained += 150;
     });
     shake = 4;
     addLog('CHARGED PARTICLE detonated');
@@ -840,11 +872,16 @@ function activateSpecial(hex) {
       if (board[r][c]?.type === tgt) {
         const pos = hexToPixel(c, r);
         addEffect('singularity', pos.x, pos.y, {duration:600});
-        board[r][c] = null; score += 200;
+        board[r][c] = null; gained += 200;
       }
     }
     shake = 5;
     addLog(`SINGULARITY: ${COL_DATA[tgt].name} eliminated`, true);
+  }
+  if (gained > 0) {
+    if (rollCoherence()) { gained *= 2; coherenceBonusFx(origin.x, origin.y); }
+    addPower(gained);
+    addText(origin.x, origin.y, `+${gained}`, '#ffe9b0', 26);
   }
 
   chargeEvent(5);
@@ -943,10 +980,11 @@ function endGame() {
   document.getElementById('go-main').textContent = `Core ${core} Failure`;
   document.getElementById('go-sub').textContent =
     `Reached ${score.toLocaleString()} of ${coreTarget.toLocaleString()} reactor power`;
-  document.getElementById('go-score').textContent = score.toLocaleString();
+  document.getElementById('go-score').textContent = totalPower.toLocaleString();
   document.getElementById('go-restart').textContent = `RETRY CORE ${core}`;
   document.getElementById('gameover').classList.add('show');
   addLog(`CORE ${core} failure — target missed`, true);
+  saveProgress();
   playSound('event');
 }
 document.getElementById('go-restart').addEventListener('click', () => startCore(core));
@@ -1786,7 +1824,7 @@ function updateHUD() {
   set('hv-energy', energyOutput.toFixed(2)+'<span class="hud-unit">TW</span>');
   set('hv-coherence', coherence.toFixed(1)+'<span class="hud-unit">%</span>');
   set('hv-temp', coreTemp.toFixed(1)+'<span class="hud-unit">K</span>');
-  set('hv-score', score.toLocaleString());
+  set('hv-score', totalPower.toLocaleString());
   const pw = reactorPower/100;
   const bw = (id, v) => { const el = document.getElementById(id); if (el) el.style.width = v+'%'; };
   bw('bar-em', 50+pw*45); bw('bar-sf', 38+pw*52); bw('bar-wf', 28+pw*56); bw('bar-gv', 18+pw*62);
