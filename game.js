@@ -7,7 +7,8 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
 // ── Constants ──────────────────────────────────────────────
-const COLS = 9, ROWS = 7, PT_COUNT = 5;
+let COLS = 9, ROWS = 7;
+const PT_COUNT = 5;
 const PT = { ELECTRON:0, PROTON:1, NEUTRON:2, PHOTON:3, PRIME:4 };
 
 let HR = 46, HW = 0, VG = 0;
@@ -1743,11 +1744,35 @@ function playSound(type) {
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  const topEdge = 110, bottomEdge = 120, sideEdge = 50;
+
+  // Orientation-aware grid: tall screens get a tall board
+  const portrait = canvas.height > canvas.width * 1.05;
+  const wantCols = portrait ? 7 : 9, wantRows = portrait ? 9 : 7;
+  const dimsChanged = wantCols !== COLS;
+  COLS = wantCols; ROWS = wantRows;
+  if (dimsChanged && board.length) {
+    selected = null; drag = null; swapFrom = swapTo = null;
+    matchGroups = []; matchedSet = new Set(); fallingCells = []; effects = [];
+    cosmicEvent = null; shake = 0;
+    initBoard();
+    if (gameState !== 'GAMEOVER') setState('IDLE');
+    addLog(portrait ? 'Lattice reconfigured: portrait' : 'Lattice reconfigured: landscape');
+  }
+
+  // Measure the real UI chrome instead of assuming margins
+  let topEdge = 110, bottomEdge = 120;
+  const hudEl = document.getElementById('hud');
+  const barEl = document.getElementById('bottom-bar');
+  if (hudEl && barEl) {
+    const timerHidden = document.getElementById('timer-bar').classList.contains('hidden');
+    topEdge = hudEl.getBoundingClientRect().bottom + (timerHidden ? 26 : 46);
+    bottomEdge = canvas.height - barEl.getBoundingClientRect().top + 6;
+  }
+  const sideEdge = Math.max(8, canvas.width * 0.02);
   const freeW = canvas.width - sideEdge*2;
   const freeH = canvas.height - topEdge - bottomEdge;
   HR = Math.min(freeW/((COLS+0.5)*Math.sqrt(3)), freeH/((ROWS-1)*1.5+2)) * 0.97;
-  HR = Math.max(16, Math.min(56, HR));
+  HR = Math.max(13, Math.min(56, HR));
   HW = HR * Math.sqrt(3); VG = HR * 1.5;
   const bw=(COLS-1+0.5)*HW, bh=(ROWS-1)*VG;
   BOARD_X = sideEdge + (freeW - bw)/2;
@@ -1773,6 +1798,7 @@ function init() {
   addLog('Awaiting particle interaction');
   initAudio();
   window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', () => setTimeout(resize, 250));
   canvas.addEventListener('mousedown', resumeAudio, {once:true});
   lastTime = performance.now();
   requestAnimationFrame(loop);
@@ -1797,16 +1823,23 @@ function loop(now) {
   drawEffects();
   ctx.restore();
 
-  // Fake-3D HUD: panels tilt in perspective and follow the pointer
+  // Fake-3D HUD: panels tilt in perspective and follow the pointer (desktop only —
+  // on phones the CSS media query owns the layout and there is no hover pointer)
   parallax.x = lerp(parallax.x, parallax.tx, 0.05);
   parallax.y = lerp(parallax.y, parallax.ty, 0.05);
   const hudEl = document.getElementById('hud');
-  hudEl.style.transform =
-    `translateX(-50%) perspective(900px) rotateX(${7 - parallax.y*2.5}deg) rotateY(${parallax.x*3.5}deg) translateZ(0)`;
-  document.getElementById('event-bar').style.transform =
-    `translateX(-50%) perspective(900px) rotateX(${6 - parallax.y*2}deg) rotateY(${parallax.x*2.5}deg)`;
-  document.getElementById('bottom-bar').style.transform =
-    `translateX(-50%) perspective(900px) rotateX(${-7 - parallax.y*2.5}deg) rotateY(${parallax.x*3.5}deg)`;
+  if (window.innerWidth > 620) {
+    hudEl.style.transform =
+      `translateX(-50%) perspective(900px) rotateX(${7 - parallax.y*2.5}deg) rotateY(${parallax.x*3.5}deg) translateZ(0)`;
+    document.getElementById('event-bar').style.transform =
+      `translateX(-50%) perspective(900px) rotateX(${6 - parallax.y*2}deg) rotateY(${parallax.x*2.5}deg)`;
+    document.getElementById('bottom-bar').style.transform =
+      `translateX(-50%) perspective(900px) rotateX(${-7 - parallax.y*2.5}deg) rotateY(${parallax.x*3.5}deg)`;
+  } else if (hudEl.style.transform) {
+    hudEl.style.transform = '';
+    document.getElementById('event-bar').style.transform = '';
+    document.getElementById('bottom-bar').style.transform = '';
+  }
 
   drawHudIcons();
   drawAbilityIcons();
