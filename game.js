@@ -335,13 +335,21 @@ function applyGravity() {
     }
   }
 }
+// When true, refilled particles avoid forming an instant match. This removes
+// the free "jackpot" cascades that random refills used to hand out, so chains
+// only come from deliberate gravity realignment — a meaningful difficulty bump.
+const AVOID_REFILL_MATCHES = true;
+
 function fillEmpty() {
   for (let col = 0; col < COLS; col++) {
     let above = 0;
     for (let row = 0; row < ROWS; row++) {
       if (board[row][col] === null) {
         above--;
-        const p = mkParticle(Math.floor(Math.random() * PT_COUNT));
+        let type, tries = 0;
+        do { type = Math.floor(Math.random() * PT_COUNT); tries++; }
+        while (AVOID_REFILL_MATCHES && tries < 24 && causesMatchAt(col, row, type));
+        const p = mkParticle(type);
         board[row][col] = p;
         const to = hexToPixel(col, row);
         p.falling = true; p.fallFromY = hexToPixel(col, 0).y + above * VG;
