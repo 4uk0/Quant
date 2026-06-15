@@ -43,7 +43,7 @@ let logQueue = [];
 let shake = 0;
 
 // Settings (persisted)
-let settings = { light: false, control: 'select', sound: true };
+let settings = { light: false, control: 'drag', sound: true };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('qr-settings') || '{}')); } catch(e) {}
 
 // Core (level) system — each Core is a timed stage with a Reactor Power target.
@@ -60,6 +60,25 @@ try {
 // Every point earned feeds both the current Core's progress and the career total
 function addPower(pts) { score += pts; totalPower += pts; }
 
+// From Core 3 on, skilled play buys back time: chains and cosmic events add
+// seconds to the Core window (+2..+5s for combos, +5s for events).
+const TIME_BONUS_FROM_CORE = 3;
+function addTime(ms, label) {
+  if (core < TIME_BONUS_FROM_CORE) return;
+  timeLeft += ms;
+  addText(VW/2, VH/2 + 34, label, '#ffd866', 24);
+}
+
+// Awards a random ability charge — the main way specials are gained now that
+// they no longer refill each Core.
+function gainAbility(reason) {
+  const keys = Object.keys(abilities);
+  const k = keys[Math.floor(Math.random() * keys.length)];
+  abilities[k]++;
+  updateAbilityUI();
+  addLog(`${k.toUpperCase()} gained — ${reason}`, true);
+}
+
 // Coherence doubles as a luck stat: higher coherence = better odds that a
 // special (match-4+, special particle, ability) pays out double
 function coherenceBonusChance() { return Math.max(0, Math.min(50, (coherence - 90) * 5)); }
@@ -74,6 +93,7 @@ let coreTarget = 3000;
 let levelState = 'playing';    // 'playing' | 'timeup' | 'passed'
 let timeLeft = CORE_TIME, gameOver = false;
 let hudTick = 0;
+let uiIconAccum = 1e9; // forces an immediate first icon render
 
 function coreTargetFor(n) { return 500 * n * (n + 5); }
 function saveProgress() {
@@ -398,13 +418,17 @@ function spawnMatchEffects(group) {
 
 // ── Banner ───────────────────────────────────────────────────
 let bannerTimeout = null;
-function showBanner(main, sub='') {
+function showBanner(main, sub='', blur=true) {
   const b = document.getElementById('banner');
   document.getElementById('banner-main').textContent = main;
   document.getElementById('banner-sub').textContent = sub;
   b.classList.add('show');
+  document.body.classList.toggle('banner-blur', blur);
   clearTimeout(bannerTimeout);
-  bannerTimeout = setTimeout(() => b.classList.remove('show'), 2200);
+  bannerTimeout = setTimeout(() => {
+    b.classList.remove('show');
+    document.body.classList.remove('banner-blur');
+  }, 2200);
 }
 
 // ── Cosmic Events ────────────────────────────────────────────
@@ -435,15 +459,11 @@ function triggerCosmicEvent() {
     supernova: ['SUPERNOVA', 'Stellar detonation imminent'],
     quantumstorm: ['QUANTUM STORM', 'Vacuum fluctuation cascade'],
   };
-  showBanner(names[type][0], names[type][1]);
+  showBanner(names[type][0], names[type][1], false); // keep the event animation crisp
   addLog(names[type][0] + ' event triggered', true);
   coherence = Math.max(88, coherence - 3.5); // events disturb coherence
-  // Reward an ability charge
-  const keys = Object.keys(abilities);
-  const k = keys[Math.floor(Math.random() * keys.length)];
-  abilities[k]++;
-  updateAbilityUI();
-  addLog(`Ability recharged: ${k.toUpperCase()}`);
+  gainAbility('cosmic event');
+  addTime(5000, '+5s'); // events buy back time on higher Cores
 }
 
 const EVENT_DUR = { blackhole: 2600, neutronstar: 2200, supernova: 2000, quantumstorm: 2400 };
@@ -606,18 +626,17 @@ function fireAbility(name, hex) {
     }
     gained = n * 140; shake = 3;
   } else if (name === 'singularity') {
-    const tgt = board[hex.row][hex.col]?.type;
-    if (tgt == null) { abilities[name]++; updateAbilityUI(); return; }
-    addEffect('singularity', x, y, {duration:800});
+    // Highest special: collapses the entire board into the singularity
+    addEffect('singularity', x, y, {duration:1000});
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-      if (board[r][c]?.type === tgt) {
+      if (board[r][c]) {
         const p = hexToPixel(c, r);
         addEffect('burst_prime', p.x, p.y, {duration:520});
         board[r][c] = null; n++;
       }
     }
-    gained = n * 220; shake = 5;
-    addLog(`SINGULARITY: ${COL_DATA[tgt].name} erased`, true);
+    gained = n * 220; shake = 8;
+    addLog('SINGULARITY — total board collapse', true);
   }
 
   if (gained > 0) {
@@ -646,7 +665,11 @@ function beginMatching(groups) {
   matchedSet = new Set(groups.flatMap(g => g.cells.map(c => `${c.col},${c.row}`)));
   groups.forEach(spawnMatchEffects);
   combo++;
-  if (combo > 1) addText(VW/2, VH/2-60, `CHAIN ×${combo}`, '#ffcc44', 32);
+  if (combo > 1) {
+    addText(VW/2, VH/2-60, `CHAIN ×${combo}`, '#ffcc44', 32);
+    const secs = Math.min(5, combo); // +2s..+5s, scaling with chain depth
+    addTime(secs * 1000, `+${secs}s`);
+  }
   setState('MATCHING');
   playSound('match');
 }
@@ -667,7 +690,7 @@ function updateGame(dt) {
   // (the combo rule) before the level is evaluated.
   if (!gameOver && levelState === 'playing') {
     timeLeft -= dt;
-    const pct = Math.max(0, timeLeft / CORE_TIME * 100);
+    const pct = Math.max(0, Math.min(100, timeLeft / CORE_TIME * 100));
     document.getElementById('timer-fill').style.width = pct + '%';
     document.getElementById('timer-num').textContent = Math.max(0, Math.ceil(timeLeft / 1000));
     document.getElementById('timer-bar').classList.toggle('low', timeLeft < 10000);
@@ -731,6 +754,8 @@ function updateGame(dt) {
           pts += gpts;
           let specialIdx = null;
           if (group.size >= 4) specialIdx = Math.floor(group.size / 2);
+          // higher chance to gain a special: even a 3-match can forge one
+          else if (group.size === 3 && Math.random() < 0.16 + combo * 0.05) specialIdx = 1;
           group.cells.forEach(({col,row}) => { board[row][col] = null; });
           if (specialIdx !== null) {
             const sc = group.cells[specialIdx];
@@ -738,7 +763,9 @@ function updateGame(dt) {
             board[sc.row][sc.col] = mkParticle(group.type, sp);
             addLog(`${sp.toUpperCase()} particle generated`, true);
           }
+          if (group.size >= 5) gainAbility('5-match');
         });
+        if (combo >= 4 && Math.random() < 0.5) gainAbility('deep chain');
         addPower(pts);
         reactorPower = Math.min(100, reactorPower + pts / 400);
         energyOutput = +(3.42 + reactorPower * 0.05).toFixed(2);
@@ -875,16 +902,17 @@ function activateSpecial(hex) {
     shake = 4;
     addLog('CHARGED PARTICLE detonated');
   } else if (p.special === 'singularity') {
-    const tgt = p.type;
+    // Highest special: destroys every particle on the board
+    addEffect('singularity', origin.x, origin.y, {duration:1000});
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-      if (board[r][c]?.type === tgt) {
+      if (board[r][c]) {
         const pos = hexToPixel(c, r);
-        addEffect('singularity', pos.x, pos.y, {duration:600});
+        addEffect('burst_prime', pos.x, pos.y, {duration:520});
         board[r][c] = null; gained += 200;
       }
     }
-    shake = 5;
-    addLog(`SINGULARITY: ${COL_DATA[tgt].name} eliminated`, true);
+    shake = 8;
+    addLog('SINGULARITY — total board collapse', true);
   }
   if (gained > 0) {
     if (rollCoherence()) { gained *= 2; coherenceBonusFx(origin.x, origin.y); }
@@ -959,7 +987,8 @@ function startCore(n) {
   matchGroups = []; matchedSet = new Set(); fallingCells = [];
   selected = null; swapFrom = swapTo = null; drag = null; armedAbility = null;
   shake = 0; gameOver = false;
-  Object.assign(abilities, { charged:3, fusion:3, stability:3, lance:3, singularity:1 });
+  // Abilities are NOT refilled between Cores — they carry over and are earned
+  // through play (see gainAbility), making specials something to hoard.
   updateAbilityUI();
   resize();
   initBoard();
@@ -1014,16 +1043,30 @@ function easeIn(t)  { return t*t; }
 function lerp(a, b, t) { return a + (b-a)*t; }
 
 // ── Rendering: background ────────────────────────────────────
-function drawBackground() {
-  const g = ctx.createRadialGradient(VW/2, VH/2, 0, VW/2, VH/2, Math.max(VW, VH));
-  g.addColorStop(0, theme.bgIn); g.addColorStop(1, theme.bgOut);
-  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
-
+// The base gradient + nebula are static per size/theme, so bake them once into
+// an offscreen canvas and blit each frame instead of rebuilding 4 full-screen
+// radial gradients every frame (a major desktop FPS drain).
+let bgCache = null, bgCacheKey = '';
+function getBgCache() {
+  const key = `${VW}x${VH}-${settings.light ? 'l' : 'd'}`;
+  if (bgCache && bgCacheKey === key) return bgCache;
+  const cv = bgCache || document.createElement('canvas');
+  cv.width = Math.max(1, VW); cv.height = Math.max(1, VH);
+  const g = cv.getContext('2d');
+  const rg = g.createRadialGradient(VW/2, VH/2, 0, VW/2, VH/2, Math.max(VW, VH));
+  rg.addColorStop(0, theme.bgIn); rg.addColorStop(1, theme.bgOut);
+  g.fillStyle = rg; g.fillRect(0, 0, VW, VH);
   theme.nebula.forEach(([nx,ny,nr,nc]) => {
-    const ng = ctx.createRadialGradient(nx*VW, ny*VH, 0, nx*VW, ny*VH, nr*VW);
+    const ng = g.createRadialGradient(nx*VW, ny*VH, 0, nx*VW, ny*VH, nr*VW);
     ng.addColorStop(0, nc); ng.addColorStop(1, 'transparent');
-    ctx.fillStyle = ng; ctx.fillRect(0, 0, VW, VH);
+    g.fillStyle = ng; g.fillRect(0, 0, VW, VH);
   });
+  bgCache = cv; bgCacheKey = key;
+  return cv;
+}
+
+function drawBackground() {
+  ctx.drawImage(getBgCache(), 0, 0, VW, VH);
 
   // Starfield with mouse parallax (deeper stars move less)
   stars.forEach(s => {
@@ -1923,10 +1966,17 @@ function resize() {
   canvas.style.width = VW + 'px';
   canvas.style.height = VH + 'px';
 
-  // Orientation-aware grid: tall screens get a tall board
+  // Orientation- and lattice-aware grid. Phones get portrait boards; the hex
+  // lattice runs an extra row taller, while the square lattice is one row and
+  // one column smaller so particles stay big enough on small screens.
   const portrait = VH > VW * 1.05;
-  const wantCols = portrait ? 7 : 9, wantRows = portrait ? 9 : 7;
-  const dimsChanged = wantCols !== COLS;
+  let wantCols, wantRows;
+  if (gridMode === 'square') {
+    [wantCols, wantRows] = portrait ? [6, 8] : [9, 7];
+  } else {
+    [wantCols, wantRows] = portrait ? [7, 10] : [9, 7];
+  }
+  const dimsChanged = wantCols !== COLS || wantRows !== ROWS;
   COLS = wantCols; ROWS = wantRows;
   if (dimsChanged && board.length) {
     selected = null; drag = null; swapFrom = swapTo = null;
@@ -2022,10 +2072,17 @@ function loop(now) {
     document.getElementById('bottom-bar').style.transform = '';
   }
 
-  drawHudIcons();
-  drawAbilityIcons();
-  drawReactorMini();
-  drawParticleIcons();
+  // Decorative HUD/ability canvases barely change frame-to-frame, but each
+  // redraw uses shadowBlur on up to 10 offscreen canvases. Refresh them at
+  // ~9fps instead of every frame — invisible to the eye, big FPS win.
+  uiIconAccum += dt;
+  if (uiIconAccum >= 110) {
+    uiIconAccum = 0;
+    drawHudIcons();
+    drawAbilityIcons();
+    drawReactorMini();
+    drawParticleIcons();
+  }
   requestAnimationFrame(loop);
 }
 

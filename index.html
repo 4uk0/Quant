@@ -12,7 +12,8 @@
 * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
 html, body { width: 100%; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; touch-action: none; }
 body.light { background: #dce9f3; }
-canvas#c { display: block; cursor: crosshair; touch-action: none; }
+canvas#c { display: block; cursor: crosshair; touch-action: none; transition: filter .35s ease; }
+body.banner-blur #c { filter: blur(7px) brightness(0.62) saturate(1.1); }
 #ui {
   position: fixed; inset: 0; pointer-events: none; z-index: 10;
   font-family: var(--font); color: #bfe6ff;
@@ -619,7 +620,7 @@ body.light #banner .b-sub { color: #2c6f9e; }
       <div class="ability-icon"><canvas id="ab-lance" width="104" height="104"></canvas><span class="ability-count" id="ac-lance">3</span></div>
       <div class="ability-label">Photon<br>Lance</div>
     </div>
-    <div class="ability" data-ability="singularity" title="Erase all particles of the chosen type">
+    <div class="ability" data-ability="singularity" title="Collapse the entire board">
       <div class="ability-icon" style="border-color:rgba(176,106,255,0.55)"><canvas id="ab-singularity" width="104" height="104"></canvas><span class="ability-count" id="ac-singularity">1</span></div>
       <div class="ability-label">Singularity</div>
     </div>
